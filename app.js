@@ -105,10 +105,16 @@
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(body)
       }).then(function (r) { return r.json(); }).then(function (j) {
+        if (j.me) state.me = j.me; // เซิร์ฟเวอร์แนบชื่อผู้ใช้มาทุกคำตอบ
         if (j.ok) return j.data;
         if (j.code === 401) {
           liff.logout();
           liff.login({ redirectUri: location.href });
+        }
+        if (j.code === 403) {
+          forgetDay();
+          fatal(j.error);
+          return new Promise(function () {}); // ไม่มีสิทธิ์ หยุดตรงนี้
         }
         throw new ApiError(j.error || 'เกิดข้อผิดพลาด', j.code);
       }, function () {
@@ -137,7 +143,8 @@
     searchResults: null,
     sheetCaseId: null,
     pending: null,
-    pendingBefore: null
+    pendingBefore: null,
+    loading: false
   };
   var loadSeq = 0;
   var lastLoadAt = 0;
@@ -186,22 +193,36 @@
     state.date = date;
     if (!silent) {
       destroyMap();
-      if (changed) { state.day = null; state.hiddenOpen = false; }
+      if (changed) {
+        // แสดงรายการที่เคยโหลดไว้ในเครื่องก่อน ระหว่างรอข้อมูลล่าสุดจากเซิร์ฟเวอร์
+        state.day = savedDay(date);
+        state.hiddenOpen = false;
+      }
       state.dayError = null;
+      state.loading = true;
       renderDay();
       window.scrollTo(0, 0);
+    } else {
+      setLoading(true);
     }
+    var fromCache = !!(state.day && state.day._local);
     var seq = ++loadSeq;
     lastLoadAt = Date.now();
     Api.call('day', { date: date }).then(function (d) {
       if (seq !== loadSeq) return;
       state.day = d;
       state.dayError = null;
-      if (silent && state.view === 'map' && map) refresh(); else { destroyMap(); renderDay(); }
+      state.loading = false;
+      setLoading(false);
+      saveDay(d);
+      setTimeout(loadLeaflet, 2500); // โหลดแผนที่รอไว้เงียบๆ กดแท็บแผนที่แล้วขึ้นเร็ว
+      if ((silent || fromCache) && state.view === 'map' && map) refresh(); else { destroyMap(); renderDay(); }
       if (silent) toast('อัปเดตรายการล่าสุดแล้ว');
     }, function (e) {
       if (seq !== loadSeq) return;
-      if (silent) { toast(e.message, true); return; }
+      state.loading = false;
+      setLoading(false);
+      if (silent || fromCache) { toast(e.message, true); return; }
       state.dayError = e.message;
       renderDay();
     });
@@ -218,7 +239,7 @@
     var html = demoFlag() +
       '<header class="topbar"><div class="topbar-text"><div class="topbar-sub">' + esc(GROUP_LABEL) + '</div>' +
       '<h1>รายการรับแจ้ง</h1></div>' +
-      '<button class="icon-btn" data-action="refresh" aria-label="โหลดรายการล่าสุด">' + icon('refresh', 22) + '</button></header>' +
+      '<button class="icon-btn' + (state.loading ? ' spinning' : '') + '" data-action="refresh" aria-label="โหลดรายการล่าสุด">' + icon('refresh', 22) + '</button></header>' +
       '<div class="datebar hero">' +
       '<button class="icon-btn" data-action="prev-day" aria-label="วันก่อนหน้า">' + icon('chevL', 22) + '</button>' +
       (state.date === today
@@ -410,9 +431,37 @@
       (withCoords.length ? '' : '<p class="map-empty">รายการวันนี้ยังไม่มีพิกัด</p>');
   }
 
+  // Leaflet โหลดเมื่อจะใช้แผนที่เท่านั้น เปิดหน้าแรกจึงไม่ต้องรอไฟล์แผนที่
+  var leafletReady = null;
+  function loadLeaflet() {
+    if (window.L) return Promise.resolve();
+    if (!leafletReady) {
+      leafletReady = new Promise(function (resolve, reject) {
+        var css = document.createElement('link');
+        css.rel = 'stylesheet';
+        css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.insertBefore(css, document.querySelector('link[href="styles.css"]'));
+        var js = document.createElement('script');
+        js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        js.onload = resolve;
+        js.onerror = function () { leafletReady = null; reject(); };
+        document.head.appendChild(js);
+      });
+    }
+    return leafletReady;
+  }
+
   function initMap() {
     var el = document.getElementById('map');
-    if (!el || typeof L === 'undefined') return;
+    if (!el || map) return;
+    if (typeof L === 'undefined') {
+      loadLeaflet().then(function () {
+        if (document.getElementById('map') === el) initMap();
+      }, function () {
+        el.innerHTML = '<p class="map-empty">โหลดแผนที่ไม่สำเร็จ ลองกดรีเฟรช</p>';
+      });
+      return;
+    }
     map = L.map(el, { zoomControl: false, attributionControl: true });
     L.control.zoom({ position: 'bottomright' }).addTo(map);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -968,6 +1017,29 @@
     return m && m[1] <= todayKey() ? m[1] : todayKey();
   }
 
+  // ---------- เก็บรายการล่าสุดไว้ในเครื่อง (เปิดครั้งหน้าเห็นทันที) ----------
+  var DAY_KEY = 'rb_day_v1';
+  function savedDay(date) {
+    if (DEMO) return null;
+    try {
+      var d = JSON.parse(localStorage.getItem(DAY_KEY) || 'null');
+      if (!d || d.date !== date) return null;
+      d._local = true;
+      return d;
+    } catch (e) { return null; }
+  }
+  function saveDay(d) {
+    if (DEMO || d.date !== todayKey()) return;
+    try { localStorage.setItem(DAY_KEY, JSON.stringify(d)); } catch (e) {}
+  }
+  function forgetDay() {
+    try { localStorage.removeItem(DAY_KEY); } catch (e) {}
+  }
+  function setLoading(on) {
+    var b = document.querySelector('[data-action="refresh"]');
+    if (b) b.classList.toggle('spinning', on);
+  }
+
   function fatal(msg) {
     app.innerHTML = '<div class="fatal">' + icon('alert', 40) + '<b>เปิดหน้ารายการไม่ได้</b><span>' + esc(msg) + '</span></div>';
   }
@@ -979,15 +1051,22 @@
         return new Promise(function () {}); // กำลัง redirect
       }
     });
+    state.date = initialDate();
+    // ระหว่างรอ LINE เข้าสู่ระบบ แสดงหน้ารายการไว้เลย: มีรายการเก่าในเครื่องก็แสดงรายการนั้น
+    // ไม่มีก็แสดงโครงหน้ารอโหลด (ยังไม่เรียก API จนกว่า LIFF พร้อม)
+    var h = parseHash();
+    if (!DEMO && h.name === 'day' && (!h.arg || h.arg === state.date)) {
+      state.day = savedDay(state.date);
+      state.loading = true;
+      renderDay();
+    }
     ready.then(function () {
-      state.date = initialDate();
-      return Api.call('me');
-    }).then(function (me) {
-      state.me = me;
+      // ชื่อผู้ใช้มากับคำตอบของ API ทุกครั้ง ไม่ต้องเรียก 'me' แยก (ประหยัดไป 1 รอบ)
+      if (DEMO) Api.call('me').then(function (me) { state.me = me; });
       if (!location.hash) history.replaceState(null, '', '#/day/' + state.date);
       route();
     }, function (e) {
-      fatal(e && e.code === 403 ? e.message : (e && e.message) || 'ลองเปิดใหม่จากลิงก์ในกลุ่ม LINE');
+      fatal((e && e.message) || 'ลองเปิดใหม่จากลิงก์ในกลุ่ม LINE');
     });
   }
 
