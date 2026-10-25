@@ -80,14 +80,15 @@
 
   var SOURCES = {
     keyword: { label: 'พิมพ์ได้รับแจ้ง', icon: 'keyboard' },
-    phone_place: { label: 'เบอร์+สถานที่', icon: 'auto', auto: true },
+    phone_place: { label: 'เบอร์+สถานที่', icon: 'auto', auto: 'ระบบจับเองจากเบอร์และคำบอกสถานที่ ควรเหลือบดูว่าใช่รายการรับแจ้งจริง' },
+    media_text: { label: 'ข้อความ+รูป/รายชื่อ', icon: 'auto', auto: 'ระบบจับเองจากข้อความบอกสถานที่หรืออาการเสียที่ส่งตามรูปหรือรายชื่อผู้ติดต่อ ควรเหลือบดูว่าใช่รายการรับแจ้งจริง' },
     photo_location: { label: 'รูป+พิกัด', icon: 'image' }
   };
   var PART_LABELS = {
-    keyword: 'ข้อความ “ได้รับแจ้ง”', phone_place: 'ข้อความเบอร์+สถานที่',
-    image: 'รูป', location: 'แชร์ตำแหน่ง', maplink: 'ลิงก์แผนที่'
+    keyword: 'ข้อความ “ได้รับแจ้ง”', phone_place: 'ข้อความเบอร์+สถานที่', media_text: 'ข้อความประกอบรูป/รายชื่อ',
+    image: 'รูป', location: 'แชร์ตำแหน่ง', maplink: 'ลิงก์แผนที่', contact: 'รายชื่อผู้ติดต่อ (.vcf)'
   };
-  var PART_ICONS = { text: 'message', image: 'image', location: 'pin', maplink: 'link' };
+  var PART_ICONS = { text: 'message', image: 'image', location: 'pin', maplink: 'link', contact: 'user' };
   var AUDIT_LABELS = {
     tick: 'ติ๊กว่าดำเนินการแล้ว', untick: 'ยกเลิกการติ๊ก',
     hide: 'ซ่อน · ไม่ใช่รายการรับแจ้ง', unhide: 'คืนรายการ'
@@ -341,7 +342,7 @@
       var m = SOURCES[s];
       if (!m) return '';
       return '<span class="src' + (m.auto ? ' auto' : '') + '"' +
-        (m.auto ? ' title="ระบบจับเองจากเบอร์และคำบอกสถานที่ ควรเหลือบดูว่าใช่รายการรับแจ้งจริง"' : '') + '>' +
+        (m.auto ? ' title="' + esc(m.auto) + '"' : '') + '>' +
         icon(m.icon, 14) + m.label + '</span>';
     }).join('') + '</div>';
   }
@@ -1116,6 +1117,7 @@
       c.sources.forEach(function (s) {
         if (s !== 'photo_location') p.push({ time: plus(c.time, c.sources.length > 1 ? 4 : 0), type: 'text', kind: s, name: c.reporterName, dup: false });
       });
+      if (c.contactPart) p.push({ time: plus(c.time, 1), type: 'contact', kind: '', name: c.reporterName, dup: false });
       for (var i = 0; i < c.dupCount; i++) p.push({ time: plus(c.time, 25), type: 'text', kind: 'phone_place', name: NAMES[4], dup: true });
       return p.sort(function (a, b) { return a.time < b.time ? -1 : 1; });
     }
@@ -1139,6 +1141,11 @@
       sources: ['photo_location', 'phone_place'], title: 'สาลีหมู่1ซอย 1 (ศาลา) มิเตอร์ใหม่',
       detail: 'ต่อตรงไว้นะครับ เค้าจะมีเรือมารับครับ', phones: ['0920000003'], lat: 14.3932, lng: 100.1517,
       photoFileIds: ['demo-meter'], reporterName: 'น้องแบงค์', done: true, doneBy: 'ช่างเอก', doneAt: '13:05'
+    });
+    add(today, '11:56', {
+      sources: ['media_text'], title: 'มิเตอร์ไฟทางชำรุดข้างโรงเรียนวัดลาดหอย ดับมา 3 วันครับ',
+      detail: 'ผู้ติดต่อ: คุณสมศรี ใจดี', phones: ['0810000010'], contactPart: true,
+      photoFileIds: ['demo-pole', 'demo-wire', 'demo-meter'], reporterName: 'พี่ต้อม'
     });
     add(today, '13:05', {
       sources: ['phone_place'], title: 'รับแจ้งไฟช็อตและมีประกายไฟที่หัวเสา บ้านกระทุ่มทอง คุณจุก',
