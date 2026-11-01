@@ -81,11 +81,12 @@
   var SOURCES = {
     keyword: { label: 'พิมพ์ได้รับแจ้ง', icon: 'keyboard' },
     phone_place: { label: 'เบอร์+สถานที่', icon: 'auto', auto: 'ระบบจับเองจากเบอร์และคำบอกสถานที่ ควรเหลือบดูว่าใช่รายการรับแจ้งจริง' },
+    place_problem: { label: 'สถานที่+อาการ', icon: 'auto', auto: 'ระบบจับเองจากข้อความที่บอกทั้งสถานที่และอาการเสีย (ไม่มีเบอร์) ควรเหลือบดูว่าใช่รายการรับแจ้งจริง' },
     media_text: { label: 'ข้อความ+รูป/รายชื่อ', icon: 'auto', auto: 'ระบบจับเองจากข้อความบอกสถานที่หรืออาการเสียที่ส่งตามรูปหรือรายชื่อผู้ติดต่อ ควรเหลือบดูว่าใช่รายการรับแจ้งจริง' },
     photo_location: { label: 'รูป+พิกัด', icon: 'image' }
   };
   var PART_LABELS = {
-    keyword: 'ข้อความ “ได้รับแจ้ง”', phone_place: 'ข้อความเบอร์+สถานที่', media_text: 'ข้อความประกอบรูป/รายชื่อ',
+    keyword: 'ข้อความ “ได้รับแจ้ง”', phone_place: 'ข้อความเบอร์+สถานที่', place_problem: 'ข้อความสถานที่+อาการ', media_text: 'ข้อความประกอบรูป/รายชื่อ',
     image: 'รูป', location: 'แชร์ตำแหน่ง', maplink: 'ลิงก์แผนที่', contact: 'รายชื่อผู้ติดต่อ (.vcf)'
   };
   var PART_ICONS = { text: 'message', image: 'image', location: 'pin', maplink: 'link', contact: 'user' };
