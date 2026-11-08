@@ -116,11 +116,10 @@
   <div id="app" aria-live="polite"></div>
   <script src="config.js"></script>
   <script>
-  /* รายงานผลการปฏิบัติงาน (vanilla JS ไม่ต้อง build) — ดึงจาก Apps Script: GET API_URL?report=1&k=..&from=..&to=.. */
+  /* รายงานผลการปฏิบัติงาน (vanilla JS ไม่ต้อง build) — ดึงจาก Apps Script: GET API_URL?report=1&from=..&to=.. */
   (function () {
     'use strict';
     var CFG = window.APP_CONFIG || {};
-    var KEY = (location.search.match(/[?&]k=([A-Za-z0-9]{16,64})/) || [])[1] || '';
     var DEMO = /[?&]demo=1\b/.test(location.search) || !CFG.API_URL;
     var TZ = 7 * 3600 * 1000;
     var MON = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
@@ -167,7 +166,7 @@
     function fetchRows(from, to) {
       if (DEMO) return new Promise(function (ok) { setTimeout(function () { ok({ from: from, to: to, rows: demoRows(from, to) }); }, 400); });
       if (!navigator.onLine) return Promise.reject(new Error('ไม่มีอินเทอร์เน็ต ตรวจสอบการเชื่อมต่อแล้วลองใหม่'));
-      var url = CFG.API_URL + '?report=1&k=' + encodeURIComponent(KEY) + '&from=' + from + '&to=' + to;
+      var url = CFG.API_URL + '?report=1&from=' + from + '&to=' + to;
       var ctrl = window.AbortController ? new AbortController() : null;
       var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 30000);
       return fetch(url, { signal: ctrl && ctrl.signal, cache: 'no-store', referrerPolicy: 'no-referrer' }).then(function (r) {
@@ -203,11 +202,6 @@
     function render() {
       var html = (DEMO ? '<div class="demo-flag">โหมดตัวอย่าง · ข้อมูลสมมติ</div>' : '') +
         '<header class="topbar"><div class="topbar-in"><div class="topbar-sub">กฟส.บางปลาม้า · สำหรับหัวหน้าเวร</div><h1>รายงานผลการปฏิบัติงาน</h1></div></header><main class="wrap">';
-
-      if (!DEMO && !KEY) {
-        app.innerHTML = html + '<div class="card empty">' + icon('lock', 40) + '<b>ลิงก์ไม่ครบ</b>เปิดจากลิงก์รายงานที่ได้รับ (มีรหัสต่อท้าย) หรือขอลิงก์จากผู้ดูแลระบบ</div></main>';
-        return;
-      }
 
       html += '<section class="card controls no-print" aria-label="เลือกช่วงวันที่"><div class="chips" role="group" aria-label="ช่วงเวลาด่วน">' +
         PRESETS.map(function (p) {
@@ -355,7 +349,7 @@
     state.preset = PRESETS.some(function (p) { return p[0] === saved; }) ? saved : 'today';
     var r0 = presetRange(state.preset);
     state.from = r0[0]; state.to = r0[1];
-    if (!DEMO && !KEY) render(); else load();
+    load();
   })();
   </script>
 </body>
