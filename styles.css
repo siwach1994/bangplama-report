@@ -140,7 +140,7 @@ a { color: inherit; }
 .chips::-webkit-scrollbar { display: none; }
 .filter-chip {
   flex: none;
-  min-height: 40px;
+  min-height: 44px; /* ปุ่มกดได้สูงอย่างน้อย 44px */
   padding: 0 14px;
   border-radius: var(--r-chip);
   border: 1px solid var(--line);
@@ -242,6 +242,15 @@ a { color: inherit; }
 .chip.muted { background: #F1F2F5; color: var(--ink-3); }
 
 .reporter { font-size: 13px; color: var(--ink-3); margin-top: 10px; }
+/* ป้ายกลุ่มที่แจ้ง (รับแจ้งจากหลายกลุ่ม) */
+.grp-tag {
+  display: inline-block; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom;
+  margin-right: 6px; padding: 1px 8px; border-radius: var(--r-chip);
+  background: var(--primary-soft); color: var(--primary); font-weight: 600; font-size: 12px;
+}
+.group-chips { margin-bottom: 8px; }
+.grp-warn { display: flex; gap: 6px; align-items: flex-start; }
+.grp-warn .ic { flex: none; margin-top: 3px; }
 
 .tick-btn {
   width: 100%;

@@ -153,6 +153,7 @@
     date: todayKey(),
     view: 'list',
     filter: 'all',
+    groupFilter: '', // ชื่อกลุ่มที่เลือกดู ('' = ทุกกลุ่ม) ใช้เมื่อรับแจ้งจากหลายกลุ่ม
     day: null,
     dayError: null,
     hiddenOpen: false,
@@ -249,8 +250,21 @@
     });
   }
 
-  function counts() {
+  /** รายการของวันที่เลือก กรองตามกลุ่มที่เลือก (ถ้ามี) */
+  function groupCases() {
     var list = state.day ? state.day.cases : [];
+    return state.groupFilter ? list.filter(function (c) { return c.group === state.groupFilter; }) : list;
+  }
+
+  /** ชื่อกลุ่มที่มีรายการในวันนั้น เรียงตามจำนวน (มีกลุ่มเดียว = ไม่ต้องแสดงตัวกรอง) */
+  function dayGroups() {
+    var n = {};
+    (state.day ? state.day.cases : []).forEach(function (c) { if (c.group) n[c.group] = (n[c.group] || 0) + 1; });
+    return Object.keys(n).sort(function (a, b) { return n[b] - n[a]; }).map(function (g) { return { name: g, n: n[g] }; });
+  }
+
+  function counts() {
+    var list = groupCases();
     var done = list.filter(function (c) { return c.done; }).length;
     return { total: list.length, done: done, todo: list.length - done };
   }
@@ -309,7 +323,8 @@
 
   /** แถบเมนูล่าง */
   function bottomNav(active) {
-    var badge = state.day ? (state.day.carryoverCount || 0) + (state.date === todayKey() ? counts().todo : 0) : 0;
+    var badge = state.day ? (state.day.carryoverCount || 0) +
+      (state.date === todayKey() ? state.day.cases.filter(function (c) { return !c.done; }).length : 0) : 0;
     var item = function (key, label, ic, attrs, n) {
       return '<' + (attrs.href ? 'a href="' + attrs.href + '"' : 'button data-action="' + attrs.action + '"' + (attrs.view ? ' data-view="' + attrs.view + '"' : '')) +
         ' class="nav-item' + (active === key ? ' active' : '') + '"' + (active === key ? ' aria-current="page"' : '') + '>' +
@@ -328,21 +343,22 @@
   function dayViewHtml() {
     if (state.dayError) return errorHtml(state.dayError, 'reload-day');
     if (!state.day) return skeletonCards(3);
-    if (state.view === 'map') return mapHtml();
+    if (state.view === 'map') return groupChipsHtml() + mapHtml();
 
+    var html = groupChipsHtml();
     var n = counts();
-    var html = '<div class="chips" role="group" aria-label="กรองรายการ">' +
+    html += '<div class="chips" role="group" aria-label="กรองรายการ">' +
       filterChip('all', 'ทั้งหมด', n.total) + filterChip('todo', 'ยังไม่ติ๊ก', n.todo) + filterChip('done', 'ติ๊กแล้ว', n.done) +
       '</div>';
     if (state.day.carryoverCount > 0) {
       html += '<a class="banner warn" href="#/pending/' + state.date + '">' + icon('alert') + '<span>ค้างจากวันก่อน ' + state.day.carryoverCount + ' รายการ</span>' + icon('chevR') + '</a>';
     }
-    var list = state.day.cases.filter(function (c) {
+    var list = groupCases().filter(function (c) {
       return state.filter === 'all' || (state.filter === 'done' ? c.done : !c.done);
     });
     if (!state.day.cases.length) {
       html += emptyHtml(state.date === todayKey() ? 'วันนี้ยังไม่มีรายการรับแจ้ง' : 'วันนี้ไม่มีรายการรับแจ้ง',
-        'รายการจะขึ้นเมื่อมีข้อความ “ได้รับแจ้ง”, เบอร์+สถานที่ หรือรูป+พิกัด ในกลุ่มมดงาน');
+        'รายการจะขึ้นเมื่อมีข้อความ “ได้รับแจ้ง”, เบอร์+สถานที่ หรือรูป+พิกัด ในกลุ่มรับแจ้ง');
     } else if (!list.length) {
       html += emptyHtml(state.filter === 'todo' ? 'ติ๊กครบทุกรายการแล้ว' : 'ยังไม่มีรายการที่ติ๊ก', '');
     } else {
@@ -355,6 +371,21 @@
   function filterChip(key, label, n) {
     return '<button class="filter-chip" data-action="filter" data-filter="' + key + '" aria-pressed="' + (state.filter === key) + '">' +
       label + ' <span class="n">' + n + '</span></button>';
+  }
+
+  /** แถบเลือกกลุ่ม (ใช้ทั้งหน้ารายการและแผนที่) แสดงเมื่อวันนั้นมีรายการจากมากกว่า 1 กลุ่ม */
+  function groupChipsHtml() {
+    var groups = dayGroups();
+    if (state.groupFilter && !groups.some(function (g) { return g.name === state.groupFilter; })) state.groupFilter = '';
+    if (groups.length < 2) return '';
+    return '<div class="chips group-chips" role="group" aria-label="กรองตามกลุ่มที่แจ้ง">' +
+      groupChip('', 'ทุกกลุ่ม', state.day.cases.length) +
+      groups.map(function (g) { return groupChip(g.name, g.name, g.n); }).join('') + '</div>';
+  }
+
+  function groupChip(key, label, n) {
+    return '<button class="filter-chip" data-action="group-filter" data-group="' + esc(key) + '" aria-pressed="' + (state.groupFilter === key) + '">' +
+      esc(label) + ' <span class="n">' + n + '</span></button>';
   }
 
   function sourceBadges(c) {
@@ -425,7 +456,8 @@
       '<a class="case-body" href="#/case/' + encodeURIComponent(c.caseId) + '"><h3>' + esc(c.title) + '</h3>' +
       (c.detail ? '<p>' + esc(c.detail) + '</p>' : '') + '</a>' +
       dupLine(c) + groupLine(c) + thumbsHtml(c) + infoChips(c) +
-      '<div class="reporter">แจ้งในกลุ่มโดย ' + esc(c.reporterName || 'ไม่ทราบชื่อ') + '</div>' +
+      '<div class="reporter">' + (c.group ? '<span class="grp-tag">' + esc(c.group) + '</span>' : '') +
+      'แจ้งในกลุ่มโดย ' + esc(c.reporterName || 'ไม่ทราบชื่อ') + '</div>' +
       tickButton(c) + hideButton(c) +
       '</article>';
   }
@@ -448,9 +480,10 @@
   // ---------- แผนที่ ----------
 
   function mapHtml() {
-    var withCoords = state.day.cases.filter(hasCoords);
-    var noCoords = state.day.cases.length - withCoords.length;
-    if (!state.day.cases.length) return emptyHtml('ไม่มีรายการให้แสดงบนแผนที่', '');
+    var cases = groupCases();
+    var withCoords = cases.filter(hasCoords);
+    var noCoords = cases.length - withCoords.length;
+    if (!cases.length) return emptyHtml('ไม่มีรายการให้แสดงบนแผนที่', '');
     return '<div class="map-wrap"><div id="map" class="map" role="application" aria-label="แผนที่จุดรับแจ้ง"></div>' +
       '<div class="map-legend"><div><span class="dot todo"></span>ยังไม่ติ๊ก</div><div><span class="dot done"></span>ดำเนินการแล้ว</div></div>' +
       (noCoords ? '<button class="map-nocoords" data-action="view" data-view="list">ไม่มีพิกัด ' + noCoords + ' จุด · ดูในรายการ</button>' : '') +
@@ -502,7 +535,7 @@
     if (!map || !markerLayer) return;
     markerLayer.clearLayers();
     var pts = [];
-    state.day.cases.filter(hasCoords).forEach(function (c) {
+    groupCases().filter(hasCoords).forEach(function (c) {
       var m = L.marker([c.lat, c.lng], {
         icon: L.divIcon({
           className: '', iconSize: [34, 34], iconAnchor: [17, 34],
@@ -609,6 +642,7 @@
       ['เบอร์', (c.phones || []).map(function (p) {
         return '<a href="tel:' + esc(p) + '" class="mono">' + esc(fmtPhone(p)) + '</a>';
       }).join(', ') || 'ไม่มี', true],
+      ['กลุ่มที่แจ้ง', c.group],
       ['ผู้แจ้ง', c.reporterName],
       ['รับแจ้ง', thaiDate(c.reportDate) + ' ' + c.time + ' น.'],
       ['ลบอัตโนมัติ', thaiDate(c.deleteOn)]
@@ -792,9 +826,14 @@
 
   /** ข้อความเข้ากลุ่ม หน้าตาเหมือนแบบฟอร์มที่ช่างพิมพ์อยู่เดิม */
   function workMessage(c, v) {
-    return WORK_MARK + ' เคส #' + c.seq + ' (' + shortDate(c.reportDate) + ')\n' + WORK_FIELDS.map(function (f) {
+    return WORK_MARK + ' เคส #' + c.seq + ' (' + shortDate(c.reportDate) + ')' + groupNote(c) + '\n' + WORK_FIELDS.map(function (f) {
       return f.label.replace(' (ชื่อ ตำแหน่ง)', '').replace('PEA หม้อแปลง', 'PEAหม้อแปลง') + ' ' + (workValue(f, v) || '-');
     }).join('\n');
+  }
+
+  /** ' · แจ้งในกลุ่ม X' ต่อท้ายบรรทัดแรกของข้อความเข้ากลุ่ม (รับแจ้งหลายกลุ่ม) ต้นข้อความคงเดิมให้ parser ข้ามได้ */
+  function groupNote(c) {
+    return c.group ? ' · แจ้งในกลุ่ม' + c.group : '';
   }
 
   function workSection(c) {
@@ -808,6 +847,11 @@
           (i < idx ? icon('check', 14) : '') + s[1] + '</li>';
       }).join('') + '</ol>';
 
+    // liff.sendMessages ส่งเข้าแชทที่เปิดหน้านี้ ไม่ใช่กลุ่มของเคส จึงเตือนให้เปิดจากกลุ่มที่แจ้ง
+    if (c.group && st !== 'done') {
+      html += '<p class="work-hint grp-warn">' + icon('message', 16) + '<span>ข้อความรับงาน/ผลงานจะส่งเข้าแชทที่เปิดหน้านี้อยู่ · เคสนี้แจ้งในกลุ่ม <b>' +
+        esc(c.group) + '</b> ควรเปิดจากกลุ่มนั้น</span></p>';
+    }
     if (st === 'doing') html += '<p class="work-note">' + icon('user', 16) + 'รับงานโดย ' + esc(c.workBy || '') + ' · ' + esc(c.workAt || '') + ' น.</p>';
     if (st === 'done') html += '<p class="work-note done">' + icon('checkCircle', 16) + 'เสร็จแล้ว · ' + esc(c.doneBy || '') + ' ' + esc(c.doneAt || '') + ' น.</p>';
 
@@ -980,7 +1024,7 @@
     }
     if (a === 'work-start') {
       workCall(c, { status: 'doing' }, function () {
-        sendToGroup('🔧 เคส #' + c.seq + ' ' + (state.me.name || '') + ' รับงานแล้ว\n' + c.title).then(function (ok) { afterSend(ok, false); });
+        sendToGroup('🔧 เคส #' + c.seq + ' ' + (state.me.name || '') + ' รับงานแล้ว' + groupNote(c) + '\n' + c.title).then(function (ok) { afterSend(ok, false); });
       });
       return;
     }
@@ -1386,6 +1430,11 @@
         renderDay();
         break;
       case 'filter': state.filter = el.getAttribute('data-filter'); renderDay(); break;
+      case 'group-filter':
+        state.groupFilter = el.getAttribute('data-group') || '';
+        if (state.view === 'map') destroyMap(); // วาดแผนที่ใหม่ หมุดตามกลุ่มที่เลือก
+        renderDay();
+        break;
       case 'toggle-hidden': state.hiddenOpen = !state.hiddenOpen; renderDay(); break;
       case 'tick': toggleTick(id); break;
       case 'hide': setHidden(id, true); break;
@@ -1497,6 +1546,8 @@
     var today = todayKey();
     var cases = [];
     var audit = {};
+    // ตัวอย่างรับแจ้งจาก 2 กลุ่ม (บอท 1 = มดงาน, บอท 2 = ระบบการรับแจ้ง 2)
+    var DEMO_GROUPS = ['มดงาน', 'รับแจ้ง 2'];
     var NAMES = ['ซุบเปอร์แมน', 'หมู ม.5', 'ช่างเอก', 'พี่ต้อม', 'น้องแบงค์', 'ลุงชัย', 'แอดมินมดงาน'];
     var TITLES = [
       'หม้อแปลงมีเสียงดัง หน้าวัดไผ่กองดิน', 'ไฟดับทั้งซอย บ้านแหลม ม.4', 'สายไฟขาด ต้นไม้ล้มทับ ริมคลองบางปลาม้า',
@@ -1512,7 +1563,7 @@
         seq: seqByDate[date], reportDate: date, time: time, reporterName: NAMES[0], sources: ['keyword'],
         title: '', detail: '', phones: [], lat: null, lng: null, address: '', approxAddress: '', mapsUrl: '',
         photoFileIds: [], dupCount: 0, done: false, doneBy: '', doneAt: '', hidden: false, hiddenBy: '', hiddenAt: '',
-        deleteOn: addDays(date, RETENTION + 1), parts: null
+        deleteOn: addDays(date, RETENTION + 1), parts: null, group: DEMO_GROUPS[0]
       }, o);
       if (!c.parts) c.parts = defaultParts(c);
       cases.push(c);
@@ -1546,7 +1597,7 @@
     add(today, '07:40', {
       sources: ['photo_location'], title: 'แจ้งด้วยรูปและพิกัด', lat: 14.4071, lng: 100.1386,
       address: 'ต.บางปลาม้า อ.บางปลาม้า สุพรรณบุรี', approxAddress: 'ถนนสาย 3351 ต.บางปลาม้า',
-      photoFileIds: ['demo-pole', 'demo-wire'], reporterName: 'หมู ม.5'
+      photoFileIds: ['demo-pole', 'demo-wire'], reporterName: 'หมู ม.5', group: DEMO_GROUPS[1]
     });
     add(today, '09:15', {
       sources: ['keyword'], title: 'หนองแขยง วัดดอน ม 8 ไผ่กองดิน ไฟดับ', detail: 'ต้องนั่งเรือเข้า',
@@ -1561,7 +1612,7 @@
     });
     // แจ้งซ้ำจุดเดียวกับ #4 (ไฟดับทั้งซอย) ใช้ลองเสนอรวมเป็นงานเดียว
     add(today, '10:28', {
-      sources: ['place_problem'], title: 'ซอยวัดมณีวรรณ ไฟไม่มาทั้งซอยครับ', reporterName: 'น้องแบงค์'
+      sources: ['place_problem'], title: 'ซอยวัดมณีวรรณ ไฟไม่มาทั้งซอยครับ', reporterName: 'น้องแบงค์', group: DEMO_GROUPS[1]
     });
     add(today, '10:32', {
       sources: ['photo_location', 'phone_place'], title: 'สาลีหมู่1ซอย 1 (ศาลา) มิเตอร์ใหม่',
@@ -1571,7 +1622,7 @@
     add(today, '11:56', {
       sources: ['media_text'], title: 'มิเตอร์ไฟทางชำรุดข้างโรงเรียนวัดลาดหอย ดับมา 3 วันครับ',
       detail: 'ผู้ติดต่อ: คุณสมศรี ใจดี', phones: ['0810000010'], contactPart: true,
-      photoFileIds: ['demo-pole', 'demo-wire', 'demo-meter'], reporterName: 'พี่ต้อม'
+      photoFileIds: ['demo-pole', 'demo-wire', 'demo-meter'], reporterName: 'พี่ต้อม', group: DEMO_GROUPS[1]
     });
     add(today, '13:05', {
       sources: ['phone_place'], title: 'รับแจ้งไฟช็อตและมีประกายไฟที่หัวเสา บ้านกระทุ่มทอง คุณจุก',
@@ -1602,7 +1653,8 @@
           lat: withCoords ? 14.38 + rnd() * 0.05 : null, lng: withCoords ? 100.11 + rnd() * 0.06 : null,
           photoFileIds: src[0] === 'photo_location' ? ['demo-pole'] : [],
           reporterName: NAMES[Math.floor(rnd() * NAMES.length)],
-          done: done, doneBy: done ? NAMES[2] : '', doneAt: done ? '16:30' : ''
+          done: done, doneBy: done ? NAMES[2] : '', doneAt: done ? '16:30' : '',
+          group: DEMO_GROUPS[rnd() > 0.7 ? 1 : 0]
         });
       }
     });
