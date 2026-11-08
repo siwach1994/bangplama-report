@@ -92,8 +92,27 @@
   var PART_ICONS = { text: 'message', image: 'image', location: 'pin', maplink: 'link', contact: 'user' };
   var AUDIT_LABELS = {
     tick: 'ติ๊กว่าดำเนินการแล้ว', untick: 'ยกเลิกการติ๊ก',
-    hide: 'ซ่อน · ไม่ใช่รายการรับแจ้ง', unhide: 'คืนรายการ'
+    hide: 'ซ่อน · ไม่ใช่รายการรับแจ้ง', unhide: 'คืนรายการ',
+    start: 'รับงาน', work: 'บันทึกผลการปฏิบัติงาน'
   };
+
+  // หน้าบันทึกผลการปฏิบัติงาน (ยังไม่มี API จริง เปิดเฉพาะโหมดตัวอย่าง หรือเมื่อ config.js ตั้ง WORKLOG: true)
+  var WORKLOG = DEMO || !!CFG.WORKLOG;
+  // ช่องตามแบบฟอร์มที่ช่างพิมพ์ในกลุ่มอยู่แล้ว (เรียงตามเดิม) req = ต้องกรอกก่อนบันทึกว่าเสร็จ
+  var WORK_FIELDS = [
+    { k: 'date', label: 'วันที่', type: 'date', req: true },
+    { k: 'outAt', label: 'เวลาไฟดับ', type: 'time', req: true },
+    { k: 'device', label: 'รหัสอุปกรณ์ป้องกัน', ph: 'เช่น BAM02F-02', upper: true },
+    { k: 'area', label: 'บริเวณ', ph: 'เช่น ไลน์แยกวัดมณีวรรณ', req: true },
+    { k: 'trans', label: 'PEA หม้อแปลง', ph: 'ถ้ามี' },
+    { k: 'fix', label: 'สาเหตุที่แก้ไข', ph: 'เช่น ฟิวส์แรงสูงขาด เฟส A', req: true, area: true },
+    { k: 'cause', label: 'สาเหตุที่พบ', ph: 'เช่น ช็อตงู', req: true },
+    { k: 'used', label: 'อุปกรณ์ที่ใช้', ph: 'เช่น ฟิวส์ 15A 1 เส้น' },
+    { k: 'onAt', label: 'เวลาจ่ายไฟ', type: 'time', req: true },
+    { k: 'by', label: 'นาย (ชื่อ ตำแหน่ง)', ph: 'เช่น วิศวะ ใจมั่น ผปร', req: true }
+  ];
+  // ข้อความที่ส่งเข้ากลุ่มขึ้นต้นด้วยคำนี้ ฝั่ง parser จะข้าม (ไม่ให้กลายเป็นรับแจ้งใหม่)
+  var WORK_MARK = '📝 ผลปฏิบัติงาน';
 
   // ---------- API ----------
 
@@ -350,6 +369,7 @@
 
   function statusPill(c) {
     if (c.hidden) return '<span class="status hidden">ซ่อนแล้ว</span>';
+    if (!c.done && c.workStatus === 'doing') return '<span class="status doing">กำลังทำ</span>';
     return c.done ? '<span class="status done">ดำเนินการแล้ว</span>' : '<span class="status todo">ยังไม่ติ๊ก</span>';
   }
 
@@ -610,16 +630,292 @@
 
     html += c.hidden
       ? '<button class="tick-btn done big" data-action="unhide" data-id="' + esc(c.caseId) + '">' + icon('undo', 22) + 'คืนรายการ (ซ่อนโดย ' + esc(c.hiddenBy) + ')</button>'
-      : tickButton(c, true) + hideButton(c);
+      : (WORKLOG ? workSection(c) : tickButton(c, true)) + hideButton(c);
 
     if (c.audit && c.audit.length) {
-      html += '<h3 class="section-title">ประวัติการติ๊ก/ซ่อน</h3><ul class="card audit">' + c.audit.map(function (a) {
+      html += '<h3 class="section-title">ประวัติ</h3><ul class="card audit">' + c.audit.map(function (a) {
         return '<li><span>' + esc(AUDIT_LABELS[a.action] || a.action) + ' · ' + esc(a.name) + '</span><span class="when">' + shortDate(a.date) + ' ' + esc(a.time) + '</span></li>';
       }).join('') + '</ul>';
     }
 
     app.innerHTML = html + '</main>';
     hydratePhotos(app);
+  }
+
+  // ---------- บันทึกผลการปฏิบัติงาน ----------
+
+  var WORKER_KEY = 'rb_worker';
+  function lsGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function lsSet(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) {} }
+
+  /** ร่างของเคสที่เปิดอยู่ เก็บใน state + เครื่อง (รีเฟรชกลางทางแล้วไม่หาย) */
+  var workSaving = {}; // caseId → true ระหว่างรอ API (กันกดซ้ำ แม้ออกไปหน้าอื่นแล้วกลับมา)
+
+  function workDraft(c) {
+    var w = state.work;
+    // ยังไม่ได้พิมพ์อะไร → ตั้งค่าใหม่จากข้อมูลล่าสุดของเคสทุกครั้ง (ไม่ค้างค่าเก่าหลังโหลดใหม่)
+    if (w && w.caseId === c.caseId && w.dirty) { w.saving = !!workSaving[c.caseId]; return w; }
+    var saved = null;
+    try { saved = JSON.parse(lsGet('rb_work_' + c.caseId) || 'null'); } catch (e) {}
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) saved = null;
+    var base = saved || c.work || {
+      date: c.reportDate, outAt: c.time, by: lsGet(WORKER_KEY) || '',
+      area: (c.title === 'แจ้งด้วยรูปและพิกัด' ? c.approxAddress || c.address : c.title) || ''
+    };
+    var v = {};
+    WORK_FIELDS.forEach(function (f) { v[f.k] = String(base[f.k] == null ? '' : base[f.k]).slice(0, 300); });
+    var keepOpen = w && w.caseId === c.caseId && w.open;
+    state.work = { caseId: c.caseId, v: v, err: {}, dirty: !!saved, open: !!saved || keepOpen || c.workStatus === 'doing', saving: !!workSaving[c.caseId] };
+    return state.work;
+  }
+
+  function thaiShortYear(key) {
+    if (!isDateKey(key)) return key || '';
+    var p = parts(key);
+    return p[2] + ' ' + MON[p[1] - 1] + ((p[0] + 543) % 100);
+  }
+  function dotTime(t) { return String(t || '').replace(':', '.'); }
+
+  function workValue(f, v) {
+    var x = String(v[f.k] == null ? '' : v[f.k]).trim();
+    if (f.type === 'date') return thaiShortYear(x);
+    if (f.type === 'time') return dotTime(x);
+    return f.upper ? x.toUpperCase() : x;
+  }
+
+  /** ข้อความเข้ากลุ่ม หน้าตาเหมือนแบบฟอร์มที่ช่างพิมพ์อยู่เดิม */
+  function workMessage(c, v) {
+    return WORK_MARK + ' เคส #' + c.seq + ' (' + shortDate(c.reportDate) + ')\n' + WORK_FIELDS.map(function (f) {
+      return f.label.replace(' (ชื่อ ตำแหน่ง)', '').replace('PEA หม้อแปลง', 'PEAหม้อแปลง') + ' ' + (workValue(f, v) || '-');
+    }).join('\n');
+  }
+
+  function workSection(c) {
+    var w = workDraft(c);
+    var st = c.done ? 'done' : (c.workStatus === 'doing' ? 'doing' : 'todo');
+    var steps = [['todo', 'ยังไม่ทำ'], ['doing', 'กำลังทำ'], ['done', 'เสร็จแล้ว']];
+    var idx = { todo: 0, doing: 1, done: 2 }[st];
+    var html = '<section class="card work-card" aria-labelledby="work-t"><h3 id="work-t">ผลการปฏิบัติงาน</h3>' +
+      '<ol class="work-steps">' + steps.map(function (s, i) {
+        return '<li class="' + (i < idx ? 'past' : i === idx ? 'now' : '') + '"' + (i === idx ? ' aria-current="step"' : '') + '>' +
+          (i < idx ? icon('check', 14) : '') + s[1] + '</li>';
+      }).join('') + '</ol>';
+
+    if (st === 'doing') html += '<p class="work-note">' + icon('user', 16) + 'รับงานโดย ' + esc(c.workBy || '') + ' · ' + esc(c.workAt || '') + ' น.</p>';
+    if (st === 'done') html += '<p class="work-note done">' + icon('checkCircle', 16) + 'เสร็จแล้ว · ' + esc(c.doneBy || '') + ' ' + esc(c.doneAt || '') + ' น.</p>';
+
+    if (st === 'done' && !w.open) {
+      if (c.work) {
+        html += '<dl class="facts work-facts">' + WORK_FIELDS.map(function (f) {
+          return '<dt>' + esc(f.label.replace(' (ชื่อ ตำแหน่ง)', '')) + '</dt><dd>' + (esc(workValue(f, c.work)) || '<span class="muted">-</span>') + '</dd>';
+        }).join('') + '</dl>';
+      } else {
+        html += '<p class="work-empty">ติ๊กเสร็จแบบเดิม ยังไม่มีบันทึกผล</p>';
+      }
+      return html + '<div class="btn-row"><button class="btn" data-action="work-reopen">' + icon('undo', 18) + 'ยังไม่เสร็จ</button>' +
+        '<button class="btn call" data-action="work-open">' + (c.work ? 'แก้ไขผล' : 'กรอกผล') + '</button></div></section>';
+    }
+
+    if (st === 'todo' && !w.open) {
+      return html + '<button class="tick-btn todo big" data-action="work-start"' + (w.saving ? ' disabled' : '') + '>' + icon('user', 22) +
+        '<span>' + (w.saving ? 'กำลังบันทึก…' : 'รับงาน · แจ้งกลุ่มว่ากำลังไป') + '</span></button>' +
+        '<button class="text-btn work-skip" data-action="work-open">ทำเสร็จแล้ว กรอกผลเลย</button></section>';
+    }
+
+    html += '<p class="work-hint">กรอกหลังเข้าดำเนินการแล้ว · ช่องที่มี <b class="req">*</b> ต้องกรอก</p><div class="work-form">' +
+      WORK_FIELDS.map(function (f) {
+        var id = 'wf-' + f.k, val = esc(w.v[f.k] || ''), bad = w.err[f.k];
+        var attrs = ' id="' + id + '" data-wf="' + f.k + '"' + (bad ? ' aria-invalid="true" aria-describedby="' + id + '-e"' : '') +
+          (f.ph ? ' placeholder="' + esc(f.ph) + '"' : '') + (f.upper ? ' class="upper" autocapitalize="characters"' : '') +
+          (w.saving ? ' disabled' : '') + ' maxlength="300"';
+        var input = f.area
+          ? '<textarea rows="2"' + attrs + '>' + val + '</textarea>'
+          : '<input type="' + (f.type || 'text') + '"' + attrs + ' value="' + val + '" autocomplete="off"' + (f.type ? '' : ' enterkeyhint="next"') + '>';
+        return '<div class="wf' + (f.type ? ' half' : '') + '"><label for="' + id + '">' + esc(f.label) + (f.req ? ' <b class="req">*</b>' : '') + '</label>' +
+          input + (bad ? '<span class="wf-err" id="' + id + '-e">' + esc(bad) + '</span>' : '') + (f.type || w.saving ? '' : chipsHtml(f, c, w.v[f.k])) + '</div>';
+      }).join('') + '</div>';
+    html += '<button class="tick-btn todo big" data-action="work-save"' + (w.saving ? ' disabled' : '') + '>' + icon('checkSquare', 22) +
+      '<span>' + (w.saving ? 'กำลังบันทึก…' : 'บันทึกผล · เสร็จแล้ว') + '</span></button>';
+    if (st !== 'doing' && !w.saving) html += '<button class="text-btn work-skip" data-action="work-cancel">ยกเลิก</button>';
+    return html + '<p class="work-hint center">บันทึกแล้วจะส่งข้อความสรุปเข้ากลุ่มในชื่อคุณ</p></section>';
+  }
+
+  // ---- คำที่ใช้บ่อย: ของเครื่องนี้ (rb_hist_v1) ขึ้นก่อน ตามด้วยของทั้งทีมที่ API ส่งมาใน c.suggest ----
+  var HIST_KEY = 'rb_hist_v1';
+  var CHIP_MAX = 6;
+
+  function localHist() {
+    try {
+      var h = JSON.parse(lsGet(HIST_KEY) || '{}');
+      return h && typeof h === 'object' && !Array.isArray(h) ? h : {};
+    } catch (e) { return {}; }
+  }
+
+  function rememberWork(v) {
+    var h = localHist();
+    WORK_FIELDS.forEach(function (f) {
+      var x = v[f.k];
+      if (f.type || !x || x.length > 120) return;
+      var m = h[f.k] && typeof h[f.k] === 'object' ? h[f.k] : {};
+      m[x] = (Number(m[x]) || 0) + 1;
+      // เก็บแค่ 20 คำที่ใช้บ่อยสุดต่อช่อง
+      var keep = Object.keys(m).sort(function (a, b) { return m[b] - m[a]; }).slice(0, 20);
+      h[f.k] = {};
+      keep.forEach(function (s) { h[f.k][s] = m[s]; });
+    });
+    lsSet(HIST_KEY, JSON.stringify(h));
+  }
+
+  function chipValues(k, c, current) {
+    var m = localHist()[k] || {};
+    var mine = Object.keys(m).sort(function (a, b) { return m[b] - m[a]; });
+    var team = (c.suggest && c.suggest[k]) || [];
+    var seen = {}, out = [];
+    var cur = String(current || '').trim();
+    mine.concat(team).forEach(function (s) {
+      s = String(s || '').trim();
+      if (!s || seen[s] || s === cur || out.length >= CHIP_MAX) return;
+      seen[s] = true;
+      out.push(s);
+    });
+    return out;
+  }
+
+  function chipsHtml(f, c, current) {
+    var list = chipValues(f.k, c, current);
+    if (!list.length) return '';
+    return '<div class="wf-chips" role="group" aria-label="คำที่ใช้บ่อย ' + esc(f.label) + '">' + list.map(function (s) {
+      return '<button type="button" class="wf-chip" data-action="wf-pick" data-k="' + f.k + '" data-v="' + esc(s) + '">' + esc(s) + '</button>';
+    }).join('') + '</div>';
+  }
+
+  /** แตะคำที่ใช้บ่อย → ใส่ในช่องแทนค่าเดิม (แก้ต่อได้) */
+  function pickChip(el) {
+    var input = document.getElementById('wf-' + el.getAttribute('data-k'));
+    if (!input || input.disabled) return;
+    input.value = el.getAttribute('data-v');
+    onWorkInput(input);
+    var row = el.parentNode;
+    Array.prototype.forEach.call(row.children, function (b) { b.removeAttribute('aria-pressed'); });
+    el.setAttribute('aria-pressed', 'true');
+  }
+
+  function workValidate(v) {
+    var err = {};
+    WORK_FIELDS.forEach(function (f) {
+      var x = String(v[f.k] == null ? '' : v[f.k]).trim();
+      if (f.req && !x) err[f.k] = 'กรุณากรอก' + (f.k === 'by' ? 'ชื่อผู้ปฏิบัติงาน' : f.label);
+      else if (x.length > 300) err[f.k] = 'ยาวเกินไป (ไม่เกิน 300 ตัวอักษร)';
+    });
+    return err;
+  }
+
+  /** ส่งข้อความเข้ากลุ่มในนามผู้ใช้ (liff.sendMessages ไม่กินโควตาบอท) · โหมดตัวอย่างแสดงหน้าตาข้อความแทน */
+  function sendToGroup(text) {
+    if (DEMO) {
+      overlay.innerHTML = '<div class="backdrop" data-action="close"></div><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sg-t">' +
+        '<div class="sheet-handle"></div><h3 id="sg-t">ข้อความที่จะส่งเข้ากลุ่ม</h3>' +
+        '<p class="work-hint">โหมดตัวอย่างไม่ได้ส่งจริง · ของจริงจะส่งในชื่อคุณ</p>' +
+        '<div class="chat-bubble">' + esc(text) + '</div>' +
+        '<div class="btn-row one"><button class="btn primary" data-action="close">ปิด</button></div></div>';
+      overlay.querySelector('.btn.primary').focus();
+      return Promise.resolve(true);
+    }
+    if (!window.liff || !liff.isInClient || !liff.isInClient()) return Promise.resolve(false);
+    return liff.sendMessages([{ type: 'text', text: text }]).then(function () { return true; }, function () { return false; });
+  }
+
+  function afterSend(ok, done) {
+    if (DEMO) return;
+    if (ok) toast(done ? 'บันทึกผลและส่งเข้ากลุ่มแล้ว' : 'รับงานแล้ว · แจ้งกลุ่มแล้ว');
+    else toast('บันทึกแล้ว แต่ส่งเข้ากลุ่มไม่ได้ · เปิดจากปุ่มในแชทกลุ่มเพื่อให้ส่งได้', true);
+  }
+
+  function onCase(id) { return state.screen === 'case' && state.caseData && state.caseData.caseId === id; }
+
+  function workCall(c, payload, onOk) {
+    var id = c.caseId;
+    if (workSaving[id]) return;
+    workSaving[id] = true;
+    state.work.saving = true;
+    renderCase(null);
+    var settle = function () {
+      delete workSaving[id];
+      if (state.work && state.work.caseId === id) state.work.saving = false;
+    };
+    Api.call('work', Object.assign({ caseId: id }, payload)).then(function (upd) {
+      settle();
+      patchCase(id, snapshot(upd));
+      if (state.caseData && state.caseData.caseId === id) {
+        Object.assign(state.caseData, snapshot(upd));
+        if (upd.audit) state.caseData.audit = upd.audit;
+      }
+      onOk(upd);
+      if (onCase(id)) renderCase(null); else refresh();
+    }, function (e) {
+      settle();
+      if (onCase(id)) renderCase(null);
+      toast('บันทึกไม่สำเร็จ: ' + e.message + ' · ข้อมูลที่กรอกยังอยู่ ลองกดอีกครั้ง', true);
+    });
+  }
+
+  function workAction(a) {
+    var c = state.caseData;
+    if (!c || !state.work || state.work.caseId !== c.caseId) return;
+    var w = state.work;
+    if (a === 'work-open') { w.open = true; renderCase(null); focusField(WORK_FIELDS[0].k); return; }
+    if (a === 'work-cancel') {
+      w.open = false; w.err = {};
+      lsSet('rb_work_' + c.caseId, null);
+      state.work = null;
+      renderCase(null);
+      return;
+    }
+    if (a === 'work-start') {
+      workCall(c, { status: 'doing' }, function () {
+        sendToGroup('🔧 เคส #' + c.seq + ' ' + (state.me.name || '') + ' รับงานแล้ว\n' + c.title).then(function (ok) { afterSend(ok, false); });
+      });
+      return;
+    }
+    if (a === 'work-reopen') {
+      confirmDialog({ title: 'เปลี่ยนเป็นยังไม่เสร็จ?', body: 'รายการ #' + c.seq + ' จะกลับไปเป็น “กำลังทำ” และนับเป็นงานค้าง', ok: 'เปลี่ยน', danger: true })
+        .then(function (yes) { if (yes) workCall(c, { status: 'doing' }, function () { if (state.work && state.work.caseId === c.caseId) state.work.open = true; }); });
+      return;
+    }
+    if (a === 'work-save') {
+      w.err = workValidate(w.v);
+      var first = WORK_FIELDS.filter(function (f) { return w.err[f.k]; })[0];
+      if (first) { renderCase(null); focusField(first.k); return; }
+      var v = {};
+      WORK_FIELDS.forEach(function (f) { v[f.k] = String(w.v[f.k] == null ? '' : w.v[f.k]).trim(); if (f.upper) v[f.k] = v[f.k].toUpperCase(); });
+      lsSet(WORKER_KEY, v.by);
+      rememberWork(v);
+      workCall(c, { status: 'done', work: v }, function () {
+        lsSet('rb_work_' + c.caseId, null);
+        if (state.work && state.work.caseId === c.caseId) { state.work.open = false; state.work.dirty = false; state.work.v = v; }
+        if (navigator.vibrate) navigator.vibrate(15);
+        sendToGroup(workMessage(c, v)).then(function (ok) { afterSend(ok, true); });
+      });
+    }
+  }
+
+  function focusField(k) {
+    var el = document.getElementById('wf-' + k);
+    if (el) { el.focus(); el.scrollIntoView({ block: 'center' }); }
+  }
+
+  function onWorkInput(el) {
+    var w = state.work, k = el.getAttribute('data-wf');
+    if (!w || w.saving) return;
+    w.v[k] = el.value;
+    w.dirty = true;
+    if (w.err[k]) {
+      delete w.err[k];
+      el.removeAttribute('aria-invalid');
+      var m = document.getElementById(el.id + '-e');
+      if (m) m.remove();
+    }
+    lsSet('rb_work_' + w.caseId, JSON.stringify(w.v));
   }
 
   // ---------- ย้อนหลัง 90 วัน ----------
@@ -792,7 +1088,13 @@
   }
 
   function snapshot(c) {
-    return { done: c.done, doneBy: c.doneBy, doneAt: c.doneAt, hidden: c.hidden, hiddenBy: c.hiddenBy, hiddenAt: c.hiddenAt };
+    var s = {
+      done: c.done, doneBy: c.doneBy, doneAt: c.doneAt, hidden: c.hidden, hiddenBy: c.hiddenBy, hiddenAt: c.hiddenAt,
+      workStatus: c.workStatus || '', workBy: c.workBy || '', workAt: c.workAt || ''
+    };
+    // คำตอบของ tick/hide ไม่มีผลงานมาด้วย ห้ามล้างของเดิมทิ้ง
+    if ('work' in c) s.work = c.work || null;
+    return s;
   }
 
   function refresh() {
@@ -992,6 +1294,8 @@
       case 'today': go('#/day/' + todayKey()); break;
       case 'goto-map': state.view = 'map'; go('#/day/' + state.date); break;
       case 'back': history.back(); break;
+      case 'work-start': case 'work-open': case 'work-cancel': case 'work-save': case 'work-reopen': workAction(a); break;
+      case 'wf-pick': pickChip(el); break;
     }
   });
 
@@ -1004,6 +1308,7 @@
 
   document.addEventListener('input', function (e) {
     if (e.target.id === 'q') onSearchInput(e.target.value);
+    else if (e.target.hasAttribute('data-wf')) onWorkInput(e.target);
   });
 
   document.addEventListener('keydown', function (e) {
@@ -1136,7 +1441,13 @@
     add(today, '09:15', {
       sources: ['keyword'], title: 'หนองแขยง วัดดอน ม 8 ไผ่กองดิน ไฟดับ', detail: 'ต้องนั่งเรือเข้า',
       phones: ['0810000002'], lat: 14.4188, lng: 100.1259, dupCount: 1, reporterName: 'พี่ต้อม',
-      done: true, doneBy: 'ลุงชัย', doneAt: '11:40'
+      done: true, doneBy: 'ลุงชัย', doneAt: '11:40', workStatus: 'done', workBy: 'ลุงชัย', workAt: '09:40',
+      work: { date: today, outAt: '09:05', device: 'BAM02F-02', area: 'ไลน์แยกวัดดอน ม.8', trans: '', fix: 'ฟิวส์แรงสูงขาด เฟส A',
+        cause: 'ช็อตงู', used: 'ฟิวส์ 15A 1 เส้น', onAt: '11:35', by: 'ชัย ตัวอย่าง ผปร' }
+    });
+    add(today, '10:05', {
+      sources: ['place_problem'], title: 'ไฟดับ ซอยวัดมณีวรรณ ม.3', reporterName: 'แอดมินมดงาน',
+      workStatus: 'doing', workBy: 'ช่างเอก', workAt: '10:20'
     });
     add(today, '10:32', {
       sources: ['photo_location', 'phone_place'], title: 'สาลีหมู่1ซอย 1 (ศาลา) มิเตอร์ใหม่',
@@ -1184,6 +1495,24 @@
     cases.sort(function (a, b) { return a.reportDate === b.reportDate ? a.seq - b.seq : (a.reportDate < b.reportDate ? -1 : 1); });
 
     function dto(c) { var o = Object.assign({}, c); delete o.parts; return o; }
+    // คำที่ทีมใช้บ่อย (ของจริงนับจากผลงานในชีต 90 วัน) เรียงจากบ่อยสุด
+    var SUGGEST_SEED = {
+      device: ['BAM02F-02', 'BAM01F-01', 'BAM03R-01'],
+      area: ['ไลน์แยกวัดมณีวรรณ', 'ไลน์แยกวัดดอน ม.8'],
+      trans: [],
+      fix: ['ฟิวส์แรงสูงขาด เฟส A', 'ฟิวส์แรงต่ำขาด', 'เปลี่ยนฟิวส์ใหม่', 'ตัดกิ่งไม้ ต่อสายใหม่'],
+      cause: ['ช็อตงู', 'กิ่งไม้พาดสาย', 'นกเกาะ', 'โหลดเกิน'],
+      used: ['ฟิวส์ 15A 1 เส้น', 'ฟิวส์ 10A 1 เส้น', 'ไม่ใช้อุปกรณ์'],
+      by: ['ช่างเอก ผปร', 'ชัย ตัวอย่าง ผปร']
+    };
+    function demoSuggest() {
+      var s = JSON.parse(JSON.stringify(SUGGEST_SEED));
+      cases.forEach(function (c) {
+        if (!c.work) return;
+        Object.keys(s).forEach(function (k) { var x = c.work[k]; if (x && s[k].indexOf(x) < 0) s[k].push(x); });
+      });
+      return s;
+    }
     function find(id) { return cases.filter(function (c) { return c.caseId === id; })[0]; }
     function carry(before) {
       return cases.filter(function (c) { return !c.hidden && !c.done && c.reportDate < before; });
@@ -1214,7 +1543,7 @@
       'case': function (p) {
         var c = find(p.id);
         if (!c) throw new ApiError('ไม่พบรายการนี้ อาจถูกลบไปแล้ว', 404);
-        return Object.assign(dto(c), { parts: c.parts, audit: audit[c.caseId].slice() });
+        return Object.assign(dto(c), { parts: c.parts, audit: audit[c.caseId].slice(), suggest: demoSuggest() });
       },
       search: function (p) {
         var q = p.q.toLowerCase().replace(/\s+/g, '');
@@ -1234,6 +1563,20 @@
         c.done = p.done; c.doneBy = p.done ? 'ผู้ทดสอบ' : ''; c.doneAt = p.done ? nowHHMM() : '';
         audit[c.caseId].push({ action: p.done ? 'tick' : 'untick', name: 'ผู้ทดสอบ', time: nowHHMM(), date: todayKey() });
         return dto(c);
+      },
+      work: function (p) {
+        var c = find(p.caseId);
+        if (!c) throw new ApiError('ไม่พบรายการนี้ อาจถูกลบไปแล้ว', 404);
+        var t = nowHHMM();
+        if (p.status === 'doing') {
+          c.workStatus = 'doing'; c.done = false; c.doneBy = ''; c.doneAt = '';
+          if (!c.workBy) { c.workBy = 'ผู้ทดสอบ'; c.workAt = t; }
+          audit[c.caseId].push({ action: 'start', name: 'ผู้ทดสอบ', time: t, date: todayKey() });
+        } else {
+          c.workStatus = 'done'; c.work = p.work; c.done = true; c.doneBy = 'ผู้ทดสอบ'; c.doneAt = t;
+          audit[c.caseId].push({ action: 'work', name: 'ผู้ทดสอบ', time: t, date: todayKey() });
+        }
+        return Object.assign(dto(c), { audit: audit[c.caseId].slice() });
       },
       hide: function (p) {
         var c = find(p.caseId);

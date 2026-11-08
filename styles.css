@@ -39,7 +39,7 @@ body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
-button, input { font: inherit; color: inherit; }
+button, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: inherit; }
 .mono { font-family: var(--mono); font-feature-settings: 'tnum'; }
@@ -195,6 +195,7 @@ a { color: inherit; }
 .status.todo { background: var(--todo-bg); color: var(--todo-ink); }
 .status.done { background: var(--done-bg); color: var(--done-ink); }
 .status.hidden { background: #E6E8EE; color: var(--ink-3); }
+.status.doing { background: var(--geo-bg); color: var(--geo-ink); }
 
 .src-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .src {
@@ -613,3 +614,63 @@ button.datebar-mid u { text-underline-offset: 2px; color: #fff; }
   font-weight: 700; min-height: 36px; padding: 0 6px;
 }
 .sheet { z-index: 1001; }
+
+/* ---------- บันทึกผลการปฏิบัติงาน ---------- */
+
+.work-card { padding: 16px; margin-top: 14px; }
+.work-card h3 { margin: 0; font-size: 17px; }
+.work-steps { list-style: none; margin: 10px 0 0; padding: 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.work-steps li {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  min-height: 34px; border-radius: var(--r-chip);
+  background: #F1F2F5; color: var(--ink-3); font-size: 14px; font-weight: 600;
+}
+.work-steps li.past { background: var(--done-bg); color: var(--done-ink); }
+.work-steps li.now { background: var(--primary); color: #fff; }
+.work-note { display: flex; align-items: center; gap: 6px; margin: 10px 0 0; font-size: 14px; color: var(--geo-ink); }
+.work-note.done { color: var(--done-ink); }
+.work-hint { margin: 12px 0 0; font-size: 14px; color: var(--ink-3); }
+.work-hint.center { text-align: center; margin-top: 8px; }
+.work-empty { margin: 12px 0 0; color: var(--ink-3); }
+.req { color: var(--danger); font-weight: 700; }
+.work-skip { margin: 6px auto 0; color: var(--primary); font-weight: 600; }
+.work-form { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 10px; margin-top: 12px; }
+.wf { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.wf.half { grid-column: auto; }
+.wf label { font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.wf input, .wf textarea {
+  width: 100%; min-height: 48px;
+  border: 1px solid #C5CAD3; border-radius: 10px; background: #fff;
+  padding: 10px 12px; font-size: 16px;
+}
+.wf textarea { resize: vertical; line-height: 1.4; }
+.wf input.upper { text-transform: uppercase; }
+.wf input::placeholder, .wf textarea::placeholder { color: #8A8F99; text-transform: none; }
+.wf input:focus, .wf textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+.wf [aria-invalid="true"] { border-color: var(--danger); background: #FFF8F7; }
+.wf-err { font-size: 13px; color: var(--danger); }
+.work-facts { margin-top: 12px; }
+.work-facts .muted { color: var(--ink-3); }
+.tick-btn[disabled] { opacity: .7; cursor: progress; }
+.chat-bubble {
+  margin-top: 12px; padding: 12px 14px;
+  background: #E8F5E1; border-radius: 16px 16px 4px 16px;
+  white-space: pre-wrap; overflow-wrap: anywhere; font-size: 15px; line-height: 1.55;
+  max-height: 50vh; overflow-y: auto;
+}
+@media (max-width: 340px) { .work-form { grid-template-columns: 1fr; } .wf.half { grid-column: 1 / -1; } }
+/* คำที่ใช้บ่อย: เลื่อนซ้าย-ขวาในแถว ไม่ดันหน้าให้กว้าง */
+.wf-chips {
+  display: flex; gap: 6px; margin-top: 2px; padding-bottom: 2px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+}
+.wf-chips::-webkit-scrollbar { display: none; }
+.wf-chip {
+  flex: none; min-height: 44px; max-width: 75vw;
+  padding: 0 14px; border-radius: var(--r-chip);
+  border: 1px solid #DCCDEE; background: var(--primary-soft); color: var(--primary);
+  font-size: 15px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.wf-chip[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; }
+.wf-chip:active { transform: scale(.97); }
