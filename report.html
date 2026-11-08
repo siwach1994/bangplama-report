@@ -1,0 +1,362 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#4B1F78">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="referrer" content="no-referrer">
+  <title>รายงานผลการปฏิบัติงาน · กฟส.บางปลาม้า</title>
+  <link rel="preconnect" href="https://script.google.com">
+  <link rel="preconnect" href="https://script.googleusercontent.com">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap"></noscript>
+  <style>
+    /* รายงานผลการปฏิบัติงาน — ใช้สี/ระยะเดียวกับ styles.css ของหน้ารายการรับแจ้ง */
+    :root {
+      --bg: #EEF0F4; --card: #FFFFFF; --line: #DCE0E7;
+      --ink: #17181C; --ink-2: #3A3E47; --ink-3: #5A5F6B;
+      --primary: #4B1F78; --primary-soft: #EFE8F7; --on-primary-2: #D9CCEB;
+      --todo-ink: #8A4B00; --todo-bg: #FFF1D6; --done-ink: #0B5F57; --done-bg: #DDF3EF;
+      --danger: #B42318;
+      --r-card: 16px; --r-btn: 12px; --r-chip: 99px;
+      --font: 'IBM Plex Sans Thai', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      --mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+      --shadow: 0 1px 2px rgba(23, 24, 28, .06), 0 2px 8px rgba(23, 24, 28, .04);
+    }
+    * { box-sizing: border-box; }
+    html { -webkit-text-size-adjust: 100%; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+    button, input { font: inherit; color: inherit; }
+    button { cursor: pointer; }
+    :focus-visible { outline: 3px solid #8F6BC0; outline-offset: 2px; }
+    .mono { font-family: var(--mono); font-feature-settings: 'tnum'; }
+    .ic { flex: none; display: block; }
+
+    .topbar { background: var(--primary); color: #fff; padding: calc(16px + env(safe-area-inset-top)) 16px 18px; }
+    .topbar-in { max-width: 1100px; margin: 0 auto; }
+    .topbar-sub { color: var(--on-primary-2); font-size: 14px; }
+    .topbar h1 { margin: 2px 0 0; font-size: 22px; line-height: 1.3; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 14px 16px calc(32px + env(safe-area-inset-bottom)); }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-card); box-shadow: var(--shadow); }
+    .demo-flag { background: var(--todo-bg); color: var(--todo-ink); text-align: center; font-size: 14px; font-weight: 600; padding: 6px 12px; }
+
+    .controls { padding: 14px 16px; }
+    .chips { display: flex; gap: 8px; flex-wrap: wrap; }
+    .chip { min-height: 44px; padding: 0 16px; border-radius: var(--r-chip); border: 1px solid var(--line); background: #fff; font-weight: 600; color: var(--ink-2); }
+    .chip[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; }
+    .range { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-top: 12px; }
+    .range label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 600; color: var(--ink-2); flex: 1 1 140px; }
+    .range input { min-height: 48px; border: 1px solid #C5CAD3; border-radius: 10px; padding: 8px 12px; background: #fff; width: 100%; }
+    .range input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+    .btn { min-height: 48px; border-radius: var(--r-btn); border: 1px solid var(--line); background: #fff; font-weight: 600; padding: 0 16px;
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+    .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; flex: 1 1 140px; }
+    .btn[disabled] { opacity: .6; cursor: progress; }
+    .btn:active, .chip:active { transform: scale(.97); }
+
+    .bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin: 18px 2px 10px; }
+    .bar h2 { margin: 0; font-size: 18px; }
+    .bar small { display: block; color: var(--ink-3); font-size: 14px; font-weight: 500; }
+    .exports { display: flex; gap: 8px; flex-wrap: wrap; }
+    .exports .btn { color: var(--primary); border-color: #DCCDEE; background: var(--primary-soft); }
+
+    .table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    table { width: 100%; border-collapse: collapse; font-size: 15px; }
+    th, td { padding: 10px 12px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    th { background: #F6F4FA; color: var(--ink-2); font-size: 14px; font-weight: 700; position: sticky; top: 0; }
+    td.w { min-width: 11em; } td.m { min-width: 8em; }
+    td.n, td.t { white-space: nowrap; }
+    tr:last-child td { border-bottom: 0; }
+    .muted { color: var(--ink-3); }
+
+    .empty { text-align: center; padding: 40px 16px; color: var(--ink-3); }
+    .empty b { display: block; color: var(--ink); font-size: 17px; margin: 10px 0 4px; }
+    .empty .ic { margin: 0 auto; color: var(--ink-3); }
+    .empty .btn { margin-top: 14px; }
+    .skel { background: linear-gradient(90deg, #E6E8EE 25%, #F1F2F5 50%, #E6E8EE 75%); background-size: 200% 100%; animation: sh 1.2s infinite; border-radius: 8px; height: 18px; margin: 12px 16px; }
+    @keyframes sh { to { background-position: -200% 0; } }
+    .hint { font-size: 14px; color: var(--ink-3); margin: 8px 2px 0; }
+    .print-head { display: none; }
+
+    /* มือถือ: ตารางเป็นการ์ดทีละรายการ ไม่ต้องเลื่อนซ้ายขวา */
+    @media screen and (max-width: 720px) {
+      thead { display: none; }
+      table, tbody, tr, td { display: block; width: 100%; }
+      tr { padding: 10px 14px; border-bottom: 1px solid var(--line); }
+      tr:last-child { border-bottom: 0; }
+      td { border: 0; padding: 3px 0; display: grid; grid-template-columns: 9.5em 1fr; gap: 8px; white-space: normal !important; }
+      td::before { content: attr(data-label); color: var(--ink-3); font-size: 14px; }
+      td.n { font-weight: 700; color: var(--primary); }
+    }
+
+    @page { size: A4 landscape; margin: 12mm 10mm; }
+    @media print {
+      body { background: #fff; font-size: 11pt; }
+      .topbar, .controls, .exports, .hint, .demo-flag, .no-print { display: none !important; }
+      .wrap { max-width: none; padding: 0; }
+      .card { border: 0; box-shadow: none; border-radius: 0; }
+      .print-head { display: block; margin-bottom: 8px; }
+      .print-head h1 { font-size: 15pt; margin: 0; }
+      .print-head p { margin: 2px 0 0; font-size: 10pt; color: #333; }
+      .bar { display: none; }
+      .table-wrap { overflow: visible; }
+      table { table-layout: auto; }
+      thead { display: table-header-group; }
+      tr { page-break-inside: avoid; }
+      td, th { border: 1px solid #999; padding: 4px 6px; font-size: 10pt; min-width: 0 !important; white-space: normal !important; }
+      td.t { white-space: nowrap !important; }
+      th { background: #eee !important; position: static; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app" aria-live="polite"></div>
+  <script src="config.js"></script>
+  <script>
+  /* รายงานผลการปฏิบัติงาน (vanilla JS ไม่ต้อง build) — ดึงจาก Apps Script: GET API_URL?report=1&k=..&from=..&to=.. */
+  (function () {
+    'use strict';
+    var CFG = window.APP_CONFIG || {};
+    var KEY = (location.search.match(/[?&]k=([A-Za-z0-9]{16,64})/) || [])[1] || '';
+    var DEMO = /[?&]demo=1\b/.test(location.search) || !CFG.API_URL;
+    var TZ = 7 * 3600 * 1000;
+    var MON = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
+    // คอลัมน์ตามแบบฟอร์มที่ช่างกรอก (WORK_FIELDS ใน app.js)
+    var COLS = [
+      ['date', 'วันที่'], ['outAt', 'เวลาไฟดับ'], ['onAt', 'เวลาจ่ายไฟ'], ['device', 'รหัสอุปกรณ์ป้องกัน'], ['area', 'บริเวณ'],
+      ['trans', 'PEA หม้อแปลง'], ['cause', 'สาเหตุที่พบ'], ['fix', 'สาเหตุที่แก้ไข'], ['used', 'อุปกรณ์ที่ใช้'], ['by', 'ผู้ปฏิบัติงาน']
+    ];
+    var PRESETS = [['today', 'วันนี้'], ['yesterday', 'เมื่อวาน'], ['7d', '7 วันล่าสุด'], ['month', 'เดือนนี้']];
+    var app = document.getElementById('app');
+    var state = { preset: 'today', from: '', to: '', rows: null, error: null, loading: false, seq: 0 };
+
+    function todayKey() { return new Date(Date.now() + TZ).toISOString().slice(0, 10); }
+    function addDays(k, n) { var p = k.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2] + n)).toISOString().slice(0, 10); }
+    function thaiShort(k) { var p = k.split('-').map(Number); return p[2] + ' ' + MON[p[1] - 1] + ' ' + ((p[0] + 543) % 100); }
+    function thaiLong(k) { var p = k.split('-').map(Number); return p[2] + ' ' + MON[p[1] - 1] + ' ' + (p[0] + 543); }
+    function rangeLabel(a, b) { return a === b ? thaiLong(a) : thaiLong(a) + ' – ' + thaiLong(b); }
+    function dotTime(t) { return String(t || '').replace(':', '.'); }
+    function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+    function escBr(s) { return esc(s).replace(/\r?\n/g, '<br>'); }
+    function cell(r, k) { return k === 'date' ? thaiShort(r.date) : (k === 'outAt' || k === 'onAt') ? dotTime(r[k]) : (r[k] || ''); }
+    function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
+
+    var ICON = {
+      print: '<path d="M6 9V3h12v6"/><rect x="6" y="14" width="12" height="7"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/>',
+      sheet: '<rect x="4" y="3" width="16" height="18" rx="2"/><path d="M4 9h16M4 15h16M10 3v18"/>',
+      doc: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/>',
+      alert: '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
+      inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13l3.5 7v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>',
+      lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'
+    };
+    function icon(n, s) { s = s || 18; return '<svg class="ic" width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICON[n] + '</svg>'; }
+
+    function presetRange(p) {
+      var t = todayKey();
+      if (p === 'yesterday') return [addDays(t, -1), addDays(t, -1)];
+      if (p === '7d') return [addDays(t, -6), t];
+      if (p === 'month') return [t.slice(0, 8) + '01', t];
+      return [t, t];
+    }
+
+    // ---------- ข้อมูล ----------
+
+    function fetchRows(from, to) {
+      if (DEMO) return new Promise(function (ok) { setTimeout(function () { ok({ from: from, to: to, rows: demoRows(from, to) }); }, 400); });
+      if (!navigator.onLine) return Promise.reject(new Error('ไม่มีอินเทอร์เน็ต ตรวจสอบการเชื่อมต่อแล้วลองใหม่'));
+      var url = CFG.API_URL + '?report=1&k=' + encodeURIComponent(KEY) + '&from=' + from + '&to=' + to;
+      var ctrl = window.AbortController ? new AbortController() : null;
+      var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, 30000);
+      return fetch(url, { signal: ctrl && ctrl.signal, cache: 'no-store', referrerPolicy: 'no-referrer' }).then(function (r) {
+        return r.json();
+      }).then(function (j) {
+        clearTimeout(timer);
+        if (!j.ok || !j.data || !Array.isArray(j.data.rows)) { var e = new Error(j.error || 'ระบบยังไม่รองรับรายงาน ลองใหม่ภายหลัง'); e.code = j.code || 500; throw e; }
+        return j.data;
+      }, function (e) {
+        clearTimeout(timer);
+        if (e && e.code) throw e;
+        throw new Error(e && e.name === 'AbortError' ? 'เซิร์ฟเวอร์ตอบช้าเกินไป ลองใหม่อีกครั้ง' : 'เชื่อมต่อไม่ได้ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่');
+      });
+    }
+
+    function load() {
+      var seq = ++state.seq;
+      state.loading = true; state.error = null;
+      render();
+      fetchRows(state.from, state.to).then(function (d) {
+        if (seq !== state.seq) return;
+        state.loading = false; state.rows = d.rows; state.from = d.from; state.to = d.to;
+        render();
+      }, function (e) {
+        if (seq !== state.seq) return;
+        state.loading = false; state.error = e; state.rows = null;
+        render();
+      });
+    }
+
+    // ---------- หน้าจอ ----------
+
+    function render() {
+      var html = (DEMO ? '<div class="demo-flag">โหมดตัวอย่าง · ข้อมูลสมมติ</div>' : '') +
+        '<header class="topbar"><div class="topbar-in"><div class="topbar-sub">กฟส.บางปลาม้า · สำหรับหัวหน้าเวร</div><h1>รายงานผลการปฏิบัติงาน</h1></div></header><main class="wrap">';
+
+      if (!DEMO && !KEY) {
+        app.innerHTML = html + '<div class="card empty">' + icon('lock', 40) + '<b>ลิงก์ไม่ครบ</b>เปิดจากลิงก์รายงานที่ได้รับ (มีรหัสต่อท้าย) หรือขอลิงก์จากผู้ดูแลระบบ</div></main>';
+        return;
+      }
+
+      html += '<section class="card controls no-print" aria-label="เลือกช่วงวันที่"><div class="chips" role="group" aria-label="ช่วงเวลาด่วน">' +
+        PRESETS.map(function (p) {
+          return '<button class="chip" data-preset="' + p[0] + '" aria-pressed="' + (state.preset === p[0]) + '">' + p[1] + '</button>';
+        }).join('') + '</div><div class="range">' +
+        '<label>ตั้งแต่วันที่<input type="date" id="from" value="' + state.from + '" max="' + todayKey() + '"></label>' +
+        '<label>ถึงวันที่<input type="date" id="to" value="' + state.to + '" max="' + todayKey() + '"></label>' +
+        '<button class="btn primary" id="go"' + (state.loading ? ' disabled' : '') + '>' + (state.loading ? 'กำลังดึง…' : 'ดึงรายงาน') + '</button></div></section>';
+
+      if (state.error) {
+        var locked = state.error.code === 403;
+        html += '<div class="card empty" role="alert">' + icon(locked ? 'lock' : 'alert', 40) + '<b>' + (locked ? 'เปิดรายงานไม่ได้' : 'ดึงรายงานไม่สำเร็จ') + '</b>' +
+          esc(state.error.message) + (locked ? '' : '<div><button class="btn" id="retry">ลองใหม่</button></div>') + '</div>';
+      } else if (state.loading || !state.rows) {
+        html += '<div class="bar"><h2>&nbsp;</h2></div><div class="card" aria-busy="true"><div class="skel"></div><div class="skel" style="width:80%"></div><div class="skel" style="width:60%"></div></div>';
+      } else {
+        var rows = state.rows;
+        html += '<div class="print-head"><h1>รายงานผลการปฏิบัติงาน กฟส.บางปลาม้า</h1><p>' + rangeLabel(state.from, state.to) + ' · ' + rows.length + ' รายการ</p></div>' +
+          '<div class="bar"><h2>' + rows.length + ' รายการ<small>' + rangeLabel(state.from, state.to) + '</small></h2>' +
+          (rows.length ? '<div class="exports"><button class="btn" id="print">' + icon('print') + 'พิมพ์ / PDF</button>' +
+            '<button class="btn" id="xlsx">' + icon('sheet') + 'Excel</button><button class="btn" id="doc">' + icon('doc') + 'Word</button></div>' : '') + '</div>';
+        if (!rows.length) {
+          html += '<div class="card empty">' + icon('inbox', 40) + '<b>ไม่มีผลการปฏิบัติงานในช่วงนี้</b>แสดงเฉพาะงานที่ช่างกด "บันทึกผล" ในหน้าเคสแล้ว ลองเลือกช่วงวันอื่น</div>';
+        } else {
+          html += '<div class="card table-wrap"><table><thead><tr><th>ลำดับ</th>' + COLS.map(function (c) { return '<th>' + c[1] + '</th>'; }).join('') +
+            '</tr></thead><tbody>' + rows.map(function (r, i) {
+              return '<tr><td class="n" data-label="ลำดับ">' + (i + 1) + '</td>' + COLS.map(function (c) {
+                var v = cell(r, c[0]);
+                var cls = c[0] === 'date' || c[0] === 'outAt' || c[0] === 'onAt' ? 't' : c[0] === 'area' || c[0] === 'fix' ? 'w' : 'm';
+                return '<td class="' + cls + '" data-label="' + c[1] + '">' +
+                  (v ? escBr(v) : '<span class="muted">-</span>') + '</td>';
+              }).join('') + '</tr>';
+            }).join('') + '</tbody></table></div>' +
+            '<p class="hint">PDF: กด "พิมพ์ / PDF" แล้วเลือกเครื่องพิมพ์เป็น "บันทึกเป็น PDF"</p>';
+        }
+      }
+      app.innerHTML = html + '</main>';
+    }
+
+    // ---------- ส่งออก ----------
+
+    function fileBase() { return 'รายงานผลปฏิบัติงาน_' + (state.from === state.to ? state.from : state.from + '_ถึง_' + state.to); }
+    function download(blob, name) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    }
+    function matrix() {
+      return [['ลำดับ'].concat(COLS.map(function (c) { return c[1]; }))].concat(state.rows.map(function (r, i) {
+        return [i + 1].concat(COLS.map(function (c) { return cell(r, c[0]); }));
+      }));
+    }
+
+    var xlsxLoading = null;
+    function loadXlsx() {
+      if (window.XLSX) return Promise.resolve();
+      if (!xlsxLoading) {
+        xlsxLoading = new Promise(function (ok, bad) {
+          var s = document.createElement('script');
+          s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+          s.onload = ok;
+          s.onerror = function () { xlsxLoading = null; bad(new Error('โหลดตัวสร้าง Excel ไม่สำเร็จ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่')); };
+          document.head.appendChild(s);
+        });
+      }
+      return xlsxLoading;
+    }
+    function exportXlsx(btn) {
+      btn.disabled = true;
+      loadXlsx().then(function () {
+        var ws = XLSX.utils.aoa_to_sheet(matrix());
+        ws['!cols'] = [6, 10, 9, 9, 16, 28, 14, 20, 24, 20, 20].map(function (w) { return { wch: w }; });
+        var wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'ผลปฏิบัติงาน');
+        XLSX.writeFile(wb, fileBase() + '.xlsx');
+      }).catch(function (e) { alertBox(e.message); }).then(function () { btn.disabled = false; });
+    }
+    /** Word: ไฟล์ HTML ที่ Word เปิดได้ (.doc) หน้ากระดาษ A4 แนวนอน */
+    function exportDoc() {
+      var m = matrix();
+      var html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">' +
+        '<head><meta charset="utf-8"><style>@page Section1{size:841.9pt 595.3pt;mso-page-orientation:landscape;margin:36pt 30pt}div.Section1{page:Section1}' +
+        'body{font-family:"TH SarabunPSK","Tahoma",sans-serif;font-size:14pt}table{border-collapse:collapse;width:100%}' +
+        'td,th{border:1px solid #777;padding:3pt 5pt;vertical-align:top;font-size:13pt}th{background:#eee}</style></head><body><div class="Section1">' +
+        '<h2 style="margin:0">รายงานผลการปฏิบัติงาน กฟส.บางปลาม้า</h2><p>' + rangeLabel(state.from, state.to) + ' · ' + state.rows.length + ' รายการ</p><table>' +
+        m.map(function (r, i) { var tag = i ? 'td' : 'th'; return '<tr>' + r.map(function (v) { return '<' + tag + '>' + escBr(v) + '</' + tag + '>'; }).join('') + '</tr>'; }).join('') +
+        '</table></div></body></html>';
+      download(new Blob(['﻿', html], { type: 'application/msword' }), fileBase() + '.doc');
+    }
+    function alertBox(msg) {
+      var el = document.createElement('div');
+      el.setAttribute('role', 'alert');
+      el.style.cssText = 'position:fixed;left:16px;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));max-width:480px;margin:0 auto;background:#2B2D33;color:#fff;padding:12px 16px;border-radius:12px;z-index:10';
+      el.textContent = msg;
+      document.body.appendChild(el);
+      setTimeout(function () { el.remove(); }, 5000);
+    }
+
+    // ---------- เหตุการณ์ ----------
+
+    document.addEventListener('click', function (e) {
+      var t = e.target.closest('button');
+      if (!t) return;
+      if (t.dataset.preset) {
+        state.preset = t.dataset.preset;
+        var r = presetRange(state.preset);
+        state.from = r[0]; state.to = r[1];
+        ls('rb_report_preset', state.preset);
+        load();
+      } else if (t.id === 'go') {
+        var f = document.getElementById('from').value, to = document.getElementById('to').value;
+        if (!f || !to) { alertBox('เลือกวันที่ให้ครบทั้งสองช่อง'); return; }
+        if (f > to) { var x = f; f = to; to = x; }
+        state.preset = ''; state.from = f; state.to = to;
+        load();
+      } else if (t.id === 'retry') load();
+      else if (t.id === 'print') window.print();
+      else if (t.id === 'xlsx') exportXlsx(t);
+      else if (t.id === 'doc') exportDoc();
+    });
+
+    // ---------- ข้อมูลตัวอย่าง ----------
+
+    function demoRows(from, to) {
+      var list = [], d = from, i = 0;
+      var A = [['ไลน์แยกวัดมณีวรรณ', 'BAM02F-02', 'ช็อตงู', 'ฟิวส์แรงสูงขาด เฟส A', 'ฟิวส์ 15A 1 เส้น'],
+        ['บ้านหงส์ ม.8', '', 'กิ่งไม้พาดสาย', 'ตัดกิ่งไม้ ต่อสายใหม่', 'สายอลูมิเนียม 10 ม.'],
+        ['ซอยวัดดอน ม.3', 'BAM01F-01', 'โหลดเกิน', 'เปลี่ยนฟิวส์แรงต่ำ', 'ฟิวส์ 100A 3 ตัว']];
+      while (d <= to && list.length < 60) {
+        A.forEach(function (a, j) {
+          if ((i + j) % 2) return;
+          list.push({ caseId: d.replace(/-/g, '') + '-00' + (j + 1), date: d, outAt: ('0' + (8 + j * 3)).slice(-2) + ':' + (j ? '15' : '40'),
+            onAt: ('0' + (9 + j * 3)).slice(-2) + ':0' + j, area: a[0], device: a[1], trans: j === 2 ? '12-345678' : '', cause: a[2], fix: a[3], used: a[4], by: 'ช่างตัวอย่าง ผปร' });
+        });
+        d = addDays(d, 1); i++;
+      }
+      return list;
+    }
+
+    // ---------- เริ่ม ----------
+    var saved = ls('rb_report_preset');
+    state.preset = PRESETS.some(function (p) { return p[0] === saved; }) ? saved : 'today';
+    var r0 = presetRange(state.preset);
+    state.from = r0[0]; state.to = r0[1];
+    if (!DEMO && !KEY) render(); else load();
+  })();
+  </script>
+</body>
+</html>
