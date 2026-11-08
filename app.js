@@ -1370,7 +1370,9 @@
     ready.then(function () {
       // ชื่อผู้ใช้มากับคำตอบของ API ทุกครั้ง ไม่ต้องเรียก 'me' แยก (ประหยัดไป 1 รอบ)
       if (DEMO) Api.call('me').then(function (me) { state.me = me; });
-      if (!location.hash) history.replaceState(null, '', '#/day/' + state.date);
+      // ปุ่ม "เปิดเคส" จากการ์ดที่บอทตอบในกลุ่ม: ?case=<caseId>
+      var cm = location.search.match(/[?&]case=([\w-]{1,40})/);
+      if (!location.hash) history.replaceState(null, '', cm ? '#/case/' + cm[1] : '#/day/' + state.date);
       route();
     }, function (e) {
       fatal((e && e.message) || 'ลองเปิดใหม่จากลิงก์ในกลุ่ม LINE');
