@@ -93,7 +93,7 @@
   var AUDIT_LABELS = {
     tick: 'ติ๊กว่าดำเนินการแล้ว', untick: 'ยกเลิกการติ๊ก',
     hide: 'ซ่อน · ไม่ใช่รายการรับแจ้ง', unhide: 'คืนรายการ',
-    start: 'รับงาน', work: 'บันทึกผลการปฏิบัติงาน'
+    start: 'รับงาน', work: 'บันทึกผลการปฏิบัติงาน', group: 'รวมเป็นงานเดียว', ungroup: 'เอาออกจากงานรวม'
   };
 
   // หน้าบันทึกผลการปฏิบัติงาน (ยังไม่มี API จริง เปิดเฉพาะโหมดตัวอย่าง หรือเมื่อ config.js ตั้ง WORKLOG: true)
@@ -413,13 +413,18 @@
       ? '<div class="dup-line">' + icon('copy', 15) + 'มีคนโพสต์ซ้ำ ' + c.dupCount + ' ครั้ง · รวมเข้าเคสนี้แล้ว</div>' : '';
   }
 
+  function groupLine(c) {
+    return c.groupSize > 0
+      ? '<div class="dup-line group-line">' + icon('link', 15) + 'งานรวม ' + (c.groupSize + 1) + ' แจ้ง · ไฟดับวงกว้าง</div>' : '';
+  }
+
   function caseCardHtml(c) {
     return '<article class="case ' + (c.done ? 'is-done' : 'is-todo') + '" aria-label="รายการ #' + c.seq + '">' +
       '<div class="case-head"><span class="case-time mono">' + esc(c.time) + '</span><span class="case-seq">#' + c.seq + '</span>' + statusPill(c) + '</div>' +
       sourceBadges(c) +
       '<a class="case-body" href="#/case/' + encodeURIComponent(c.caseId) + '"><h3>' + esc(c.title) + '</h3>' +
       (c.detail ? '<p>' + esc(c.detail) + '</p>' : '') + '</a>' +
-      dupLine(c) + thumbsHtml(c) + infoChips(c) +
+      dupLine(c) + groupLine(c) + thumbsHtml(c) + infoChips(c) +
       '<div class="reporter">แจ้งในกลุ่มโดย ' + esc(c.reporterName || 'ไม่ทราบชื่อ') + '</div>' +
       tickButton(c) + hideButton(c) +
       '</article>';
@@ -630,7 +635,7 @@
 
     html += c.hidden
       ? '<button class="tick-btn done big" data-action="unhide" data-id="' + esc(c.caseId) + '">' + icon('undo', 22) + 'คืนรายการ (ซ่อนโดย ' + esc(c.hiddenBy) + ')</button>'
-      : (WORKLOG ? workSection(c) : tickButton(c, true)) + hideButton(c);
+      : groupSection(c) + (c.groupMain ? '' : (WORKLOG ? workSection(c) : tickButton(c, true))) + hideButton(c);
 
     if (c.audit && c.audit.length) {
       html += '<h3 class="section-title">ประวัติ</h3><ul class="card audit">' + c.audit.map(function (a) {
@@ -640,6 +645,108 @@
 
     app.innerHTML = html + '</main>';
     hydratePhotos(app);
+  }
+
+  // ---------- รวมหลายการแจ้งเป็นงานเดียว (ไฟดับวงกว้าง) ----------
+  // ระบบเสนอเคสที่แจ้งห่างกันไม่เกิน 1 ชม. และอยู่ใกล้กัน (group.gs) ช่างเลือกแล้วกดรวม
+  // กด "ไม่ใช่" = ไม่เสนอรายการชุดนั้นอีกในเครื่องนี้ (แจ้งใหม่ที่เข้ามาทีหลังยังเสนอได้)
+
+  var GROUP_MARK = '🔗 รวม'; // ต้องตรงกับ WORK_MESSAGE_PREFIXES_ ใน parse.gs
+  var groupBusy = false;
+
+  function dismissedCandidates(id) {
+    try { var a = JSON.parse(lsGet('rb_nogroup_' + id) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; }
+  }
+
+  function miniRow(m, extra) {
+    return '<li><a href="#/case/' + encodeURIComponent(m.caseId) + '"><span class="mono">' + esc(m.time) + '</span> <b>#' + m.seq + '</b> ' +
+      esc(m.title || 'รายการรับแจ้ง') + '</a>' + (extra || '') + '</li>';
+  }
+
+  function groupSection(c) {
+    if (c.groupMain) {
+      var m = c.groupMain;
+      return '<section class="card group-card is-member"><h3>' + icon('link', 18) + 'รวมอยู่ในงานหลัก</h3>' +
+        '<ul class="group-list">' + miniRow(m) + '</ul>' +
+        '<p class="work-hint">บันทึกผลที่งานหลักครั้งเดียว รายการนี้จะเสร็จตามไปด้วย</p>' +
+        '<a class="btn primary group-go" href="#/case/' + encodeURIComponent(m.caseId) + '">เปิดงานหลัก #' + m.seq + '</a>' +
+        '<button class="text-btn" data-action="group-remove" data-id="' + esc(c.caseId) + '"' + (groupBusy ? ' disabled' : '') + '>ไม่ใช่งานเดียวกัน · เอาออก</button></section>';
+    }
+    var html = '';
+    var members = c.groupMembers || [];
+    if (members.length) {
+      html += '<section class="card group-card"><h3>' + icon('link', 18) + 'งานรวม ' + (members.length + 1) + ' แจ้ง</h3>' +
+        '<p class="work-hint">รวมเข้ามาในงานนี้ บันทึกผลครั้งเดียวทุกรายการเสร็จพร้อมกัน</p><ul class="group-list">' +
+        members.map(function (m) {
+          return miniRow(m, '<button class="small-link" data-action="group-remove" data-id="' + esc(m.caseId) + '"' + (groupBusy ? ' disabled' : '') +
+            ' aria-label="เอารายการ #' + m.seq + ' ออกจากงานรวม">เอาออก</button>');
+        }).join('') + '</ul></section>';
+    }
+    var no = dismissedCandidates(c.caseId);
+    var cand = (c.groupCandidates || []).filter(function (x) { return no.indexOf(x.caseId) < 0; });
+    if (cand.length && !c.done) {
+      html += '<section class="card group-card suggest" aria-labelledby="grp-t"><h3 id="grp-t">' + icon('alert', 18) +
+        'มีแจ้งใกล้กันอีก ' + cand.length + ' รายการ</h3>' +
+        '<p class="work-hint">แจ้งห่างกันไม่เกิน 1 ชม. และอยู่ใกล้กัน ถ้าเป็นไฟดับจุดเดียวกัน รวมเป็นงานเดียว แล้วบันทึกผลครั้งเดียว</p>' +
+        '<ul class="group-list pick">' + cand.map(function (x) {
+          return '<li><label class="group-pick"><input type="checkbox" data-gid="' + esc(x.caseId) + '" checked>' +
+            '<span><span class="mono">' + esc(x.time) + '</span> <b>#' + x.seq + '</b> ' + esc(x.title || 'รายการรับแจ้ง') +
+            '<small>แจ้งโดย ' + esc(x.reporterName || '-') + '</small></span></label></li>';
+        }).join('') + '</ul><div class="btn-row"><button class="btn" data-action="group-dismiss">ไม่ใช่</button>' +
+        '<button class="btn primary" data-action="group-join"' + (groupBusy ? ' disabled' : '') + '>' + (groupBusy ? 'กำลังรวม…' : 'รวมที่เลือก') + '</button></div></section>';
+    }
+    return html;
+  }
+
+  function groupAction(a, el) {
+    var c = state.caseData;
+    if (!c || groupBusy) return;
+    if (a === 'group-dismiss') {
+      var ids = dismissedCandidates(c.caseId).concat((c.groupCandidates || []).map(function (x) { return x.caseId; }));
+      lsSet('rb_nogroup_' + c.caseId, JSON.stringify(ids.slice(-50)));
+      renderCase(null);
+      return;
+    }
+    if (a === 'group-join') {
+      var pick = Array.prototype.map.call(document.querySelectorAll('[data-gid]:checked'), function (x) { return x.getAttribute('data-gid'); });
+      if (!pick.length) { toast('ติ๊กเลือกรายการที่จะรวมก่อน', true); return; }
+      var names = (c.groupCandidates || []).filter(function (x) { return pick.indexOf(x.caseId) >= 0; });
+      groupCall('group', { caseId: c.caseId, ids: pick }, function (upd) {
+        var all = upd.groupMembers || [];
+        sendToGroup(GROUP_MARK + ' ' + (all.length + 1) + ' แจ้งเป็นงานเดียว · งานหลัก #' + upd.seq + ' ' + (upd.title || '') + '\n' +
+          names.map(function (x) { return '+ #' + x.seq + ' ' + (x.title || ''); }).join('\n')).then(function (ok) {
+          if (!DEMO) toast(ok ? 'รวมแล้ว · แจ้งกลุ่มแล้ว' : 'รวมแล้ว แต่ส่งเข้ากลุ่มไม่ได้', !ok);
+        });
+      });
+      return;
+    }
+    if (a === 'group-remove') {
+      var id = el.getAttribute('data-id');
+      confirmDialog({ title: 'เอาออกจากงานรวม?', body: 'รายการนี้จะกลับเป็นรายการเดี่ยว ต้องบันทึกผลแยก', ok: 'เอาออก', danger: true }).then(function (yes) {
+        if (!yes) return;
+        groupCall('ungroup', { caseId: id }, function () { toast('เอาออกแล้ว'); }, id === c.caseId);
+      });
+    }
+  }
+
+  /** เรียก API รวม/เอาออก แล้วแสดงข้อมูลงานหลักล่าสุดที่ API ส่งกลับ (ถ้าเอาตัวเองออก ให้โหลดเคสตัวเองใหม่) */
+  function groupCall(action, payload, onOk, reloadSelf) {
+    groupBusy = true;
+    renderCase(null);
+    var id = state.caseData.caseId;
+    Api.call(action, payload).then(function (upd) {
+      groupBusy = false;
+      // รายการรายวัน/ค้นหาเปลี่ยน ให้โหลดใหม่เมื่อกลับไป (ผลค้นหาเก่ายังชี้ไปงานหลักเดิม)
+      state.day = null; state.pending = null; state.searchResults = null; state.searchQ = '';
+      if (state.screen !== 'case' || !state.caseData || state.caseData.caseId !== id) return;
+      if (reloadSelf) showCase(id, true);
+      else { state.caseData = upd; renderCase(null); }
+      onOk(upd);
+    }, function (e) {
+      groupBusy = false;
+      if (state.screen === 'case') renderCase(null);
+      toast('ทำไม่สำเร็จ: ' + e.message, true);
+    });
   }
 
   // ---------- บันทึกผลการปฏิบัติงาน ----------
@@ -954,7 +1061,7 @@
       if (!state.searchResults) html += skeletonCards(2);
       else if (!state.searchResults.length) html += emptyHtml('ไม่พบรายการที่ตรงกับ “' + esc(state.searchQ) + '”', 'ลองค้นด้วยชื่อหมู่บ้าน หมู่ที่ หรือเลขท้ายเบอร์ 4 ตัว');
       else html += '<div class="day-list">' + state.searchResults.map(function (c) {
-        return '<a class="result-row" href="#/case/' + encodeURIComponent(c.caseId) + '"><div class="mid"><b>' + esc(c.title) + '</b>' +
+        return '<a class="result-row" href="#/case/' + encodeURIComponent(c.groupOf || c.caseId) + '"><div class="mid"><b>' + esc(c.title) + '</b>' +
           '<small>' + shortDate(c.reportDate) + ' ' + esc(c.time) + ' · #' + c.seq + '</small></div>' + statusPill(c) + '</a>';
       }).join('') + '</div>';
     } else if (error) {
@@ -1296,6 +1403,7 @@
       case 'back': history.back(); break;
       case 'work-start': case 'work-open': case 'work-cancel': case 'work-save': case 'work-reopen': workAction(a); break;
       case 'wf-pick': pickChip(el); break;
+      case 'group-join': case 'group-dismiss': case 'group-remove': groupAction(a, el); break;
     }
   });
 
@@ -1451,6 +1559,10 @@
       sources: ['place_problem'], title: 'ไฟดับ ซอยวัดมณีวรรณ ม.3', reporterName: 'แอดมินมดงาน',
       workStatus: 'doing', workBy: 'ช่างเอก', workAt: '10:20'
     });
+    // แจ้งซ้ำจุดเดียวกับ #4 (ไฟดับทั้งซอย) ใช้ลองเสนอรวมเป็นงานเดียว
+    add(today, '10:28', {
+      sources: ['place_problem'], title: 'ซอยวัดมณีวรรณ ไฟไม่มาทั้งซอยครับ', reporterName: 'น้องแบงค์'
+    });
     add(today, '10:32', {
       sources: ['photo_location', 'phone_place'], title: 'สาลีหมู่1ซอย 1 (ศาลา) มิเตอร์ใหม่',
       detail: 'ต่อตรงไว้นะครับ เค้าจะมีเรือมารับครับ', phones: ['0920000003'], lat: 14.3932, lng: 100.1517,
@@ -1496,7 +1608,58 @@
     });
     cases.sort(function (a, b) { return a.reportDate === b.reportDate ? a.seq - b.seq : (a.reportDate < b.reportDate ? -1 : 1); });
 
-    function dto(c) { var o = Object.assign({}, c); delete o.parts; return o; }
+    // งานรวมแบบย่อของ group.gs (เทียบชื่อสถานที่ + พิกัด ≤ 1 กม. + ห่างไม่เกิน 1 ชม.)
+    function ginfo() {
+      var by = {}, of = {}, size = {};
+      cases.forEach(function (c) { by[c.caseId] = c; });
+      cases.forEach(function (c) { if (c.groupId && c.groupId !== c.caseId && by[c.groupId]) { of[c.caseId] = c.groupId; size[c.groupId] = (size[c.groupId] || 0) + 1; } });
+      return { by: by, of: of, size: size };
+    }
+    function toks(t) {
+      var s = String(t || '').replace(/[\s.\-–,/()]+/g, ''), out = [];
+      ['หมู่บ้าน', 'บ้าน', 'ซอย', 'วัด', 'โรงเรียน', 'ชุมชน', 'ตลาด', 'ถนน', 'คลอง', 'สะพาน'].forEach(function (w) {
+        for (var i = s.indexOf(w); i >= 0; i = s.indexOf(w, i + w.length)) {
+          var n = s.slice(i + w.length, i + w.length + 4);
+          if (n.length === 4 && /^[\u0E01-\u0E2E]/.test(n) && n.indexOf('ไฟ') !== 0) out.push(w.replace('หมู่บ้าน', 'บ้าน') + n);
+        }
+      });
+      return out;
+    }
+    function ts(c) { return Date.parse(c.reportDate + 'T' + c.time + ':00+07:00'); }
+    function near(a, b) {
+      if (a.lat != null && b.lat != null && Math.abs(a.lat - b.lat) < 0.009 && Math.abs(a.lng - b.lng) < 0.009) return true;
+      var tb = toks(b.title + b.detail);
+      return toks(a.title + a.detail).some(function (t) { return tb.indexOf(t) >= 0; });
+    }
+    function mini(c) { return { caseId: c.caseId, seq: c.seq, reportDate: c.reportDate, time: c.time, title: c.title, reporterName: c.reporterName }; }
+    function members(id, g) { return cases.filter(function (x) { return g.of[x.caseId] === id; }); }
+    function candidates(c, g) {
+      if (c.hidden || c.done || g.of[c.caseId]) return [];
+      var base = [c].concat(members(c.caseId, g));
+      return cases.filter(function (x) {
+        if (base.indexOf(x) >= 0 || x.hidden || x.done || g.of[x.caseId] || g.size[x.caseId]) return false;
+        return base.some(function (b) { return Math.abs(ts(x) - ts(b)) <= 3600000 && near(b, x); });
+      });
+    }
+    function sync(main) {
+      var g = ginfo();
+      members(main.caseId, g).forEach(function (m) { m.done = main.done; m.doneBy = main.doneBy; m.doneAt = main.doneAt; m.workStatus = main.workStatus; });
+    }
+    function caseFull(c) {
+      var g = ginfo(), mainId = g.of[c.caseId];
+      return Object.assign(dto(c), {
+        parts: c.parts, audit: audit[c.caseId].slice(), suggest: demoSuggest(),
+        groupMain: mainId ? mini(g.by[mainId]) : null,
+        groupMembers: mainId ? [] : members(c.caseId, g).map(mini),
+        groupCandidates: mainId ? [] : candidates(c, g).map(mini)
+      });
+    }
+    function top(list) { var g = ginfo(); return list.filter(function (c) { return !g.of[c.caseId]; }); }
+    function dto(c) {
+      var o = Object.assign({}, c); delete o.parts;
+      var g = ginfo(); o.groupOf = g.of[c.caseId] || ''; o.groupSize = g.size[c.caseId] || 0;
+      return o;
+    }
     // คำที่ทีมใช้บ่อย (ของจริงนับจากผลงานในชีต 90 วัน) เรียงจากบ่อยสุด
     var SUGGEST_SEED = {
       device: ['BAM02F-02', 'BAM01F-01', 'BAM03R-01'],
@@ -1517,13 +1680,13 @@
     }
     function find(id) { return cases.filter(function (c) { return c.caseId === id; })[0]; }
     function carry(before) {
-      return cases.filter(function (c) { return !c.hidden && !c.done && c.reportDate < before; });
+      return top(cases).filter(function (c) { return !c.hidden && !c.done && c.reportDate < before; });
     }
 
     var handlers = {
       me: function () { return { name: 'ผู้ทดสอบ' }; },
       day: function (p) {
-        var list = cases.filter(function (c) { return c.reportDate === p.date; });
+        var list = top(cases).filter(function (c) { return c.reportDate === p.date; });
         var vis = list.filter(function (c) { return !c.hidden; });
         return {
           date: p.date, cases: vis.map(dto), hiddenCases: list.filter(function (c) { return c.hidden; }).map(dto),
@@ -1534,7 +1697,7 @@
       carryover: function (p) { var l = carry(p.before); return { before: p.before, count: l.length, cases: l.map(dto) }; },
       days: function () {
         var by = {};
-        cases.forEach(function (c) {
+        top(cases).forEach(function (c) {
           if (c.hidden) return;
           var d = by[c.reportDate] || (by[c.reportDate] = { date: c.reportDate, count: 0, doneCount: 0 });
           d.count++;
@@ -1545,7 +1708,7 @@
       'case': function (p) {
         var c = find(p.id);
         if (!c) throw new ApiError('ไม่พบรายการนี้ อาจถูกลบไปแล้ว', 404);
-        return Object.assign(dto(c), { parts: c.parts, audit: audit[c.caseId].slice(), suggest: demoSuggest() });
+        return caseFull(c);
       },
       search: function (p) {
         var q = p.q.toLowerCase().replace(/\s+/g, '');
@@ -1564,6 +1727,7 @@
         var c = find(p.caseId);
         c.done = p.done; c.doneBy = p.done ? 'ผู้ทดสอบ' : ''; c.doneAt = p.done ? nowHHMM() : '';
         audit[c.caseId].push({ action: p.done ? 'tick' : 'untick', name: 'ผู้ทดสอบ', time: nowHHMM(), date: todayKey() });
+        sync(c);
         return dto(c);
       },
       work: function (p) {
@@ -1578,7 +1742,30 @@
           c.workStatus = 'done'; c.work = p.work; c.done = true; c.doneBy = 'ผู้ทดสอบ'; c.doneAt = t;
           audit[c.caseId].push({ action: 'work', name: 'ผู้ทดสอบ', time: t, date: todayKey() });
         }
+        sync(c);
         return Object.assign(dto(c), { audit: audit[c.caseId].slice() });
+      },
+      group: function (p) {
+        var main = find(p.caseId), g = ginfo();
+        if (!main || g.of[main.caseId]) throw new ApiError('รายการนี้อยู่ในงานอื่นแล้ว', 400);
+        main.groupId = main.caseId;
+        p.ids.forEach(function (id) {
+          var m = find(id);
+          if (!m || m.hidden || g.of[id] || g.size[id]) throw new ApiError('บางรายการรวมไม่ได้ ลองโหลดใหม่', 400);
+          m.groupId = main.caseId; m.done = main.done; m.doneBy = main.doneBy; m.doneAt = main.doneAt; m.workStatus = main.workStatus;
+          audit[id].push({ action: 'group', name: 'ผู้ทดสอบ', time: nowHHMM(), date: todayKey() });
+        });
+        audit[main.caseId].push({ action: 'group', name: 'ผู้ทดสอบ', time: nowHHMM(), date: todayKey() });
+        return caseFull(main);
+      },
+      ungroup: function (p) {
+        var c = find(p.caseId), g = ginfo(), mainId = g.of[p.caseId];
+        if (!mainId) throw new ApiError('รายการนี้ไม่ได้อยู่ในงานรวม', 400);
+        c.groupId = '';
+        if (!c.work) { c.done = false; c.doneBy = ''; c.doneAt = ''; c.workStatus = ''; }
+        if (g.size[mainId] === 1) find(mainId).groupId = '';
+        audit[c.caseId].push({ action: 'ungroup', name: 'ผู้ทดสอบ', time: nowHHMM(), date: todayKey() });
+        return caseFull(find(mainId));
       },
       hide: function (p) {
         var c = find(p.caseId);

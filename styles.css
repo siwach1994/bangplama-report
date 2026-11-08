@@ -674,3 +674,22 @@ button.datebar-mid u { text-underline-offset: 2px; color: #fff; }
 }
 .wf-chip[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; }
 .wf-chip:active { transform: scale(.97); }
+
+/* ---------- งานรวม (ไฟดับวงกว้าง) ---------- */
+
+.group-card { padding: 16px; margin-top: 14px; }
+.group-card h3 { margin: 0; font-size: 17px; display: flex; align-items: center; gap: 8px; }
+.group-card.suggest { border-color: var(--todo-line); background: #FFFBF2; }
+.group-card.suggest h3 { color: var(--todo-ink); }
+.group-card.is-member { border-color: #C9DCF4; background: #F6FAFF; }
+.group-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.group-list li { display: flex; align-items: center; gap: 8px; }
+.group-list li > a { flex: 1; min-width: 0; min-height: 44px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 6px 10px; border-radius: 10px; background: #fff; border: 1px solid var(--line); text-decoration: none; overflow-wrap: anywhere; }
+.group-pick { flex: 1; display: flex; align-items: flex-start; gap: 10px; min-height: 44px; padding: 8px 10px;
+  border-radius: 10px; background: #fff; border: 1px solid var(--line); cursor: pointer; overflow-wrap: anywhere; }
+.group-pick input { width: 22px; height: 22px; margin-top: 1px; flex: none; accent-color: var(--primary); }
+.group-pick small { display: block; color: var(--ink-3); font-size: 13px; }
+.small-link { flex: none; min-height: 44px; padding: 0 10px; border: 0; background: transparent; color: var(--danger); font-weight: 600; }
+.group-go { margin-top: 12px; width: 100%; }
+.group-line { color: var(--geo-ink); font-weight: 600; }

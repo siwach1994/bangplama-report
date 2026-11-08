@@ -70,6 +70,12 @@
     td.w { min-width: 11em; } td.m { min-width: 8em; }
     td.n, td.t { white-space: nowrap; }
     tr:last-child td { border-bottom: 0; }
+    /* ช่องติ๊กเลือกแถว: พื้นที่กดอย่างน้อย 44px */
+    th.pick, td.pick { width: 52px; padding: 0; }
+    .tick { display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; cursor: pointer; }
+    .tick input { width: 20px; height: 20px; accent-color: var(--primary); cursor: pointer; }
+    tr.off td:not(.pick) { color: #9AA0AA; text-decoration: line-through; text-decoration-color: #C5CAD3; }
+    tr.off .muted { color: #B5BAC3; }
     .muted { color: var(--ink-3); }
 
     .empty { text-align: center; padding: 40px 16px; color: var(--ink-3); }
@@ -89,6 +95,8 @@
       tr:last-child { border-bottom: 0; }
       td { border: 0; padding: 3px 0; display: grid; grid-template-columns: 9.5em 1fr; gap: 8px; white-space: normal !important; }
       td::before { content: attr(data-label); color: var(--ink-3); font-size: 14px; }
+      td.pick { width: auto; align-items: center; }
+      td.pick .tick { justify-content: flex-start; min-width: 0; }
       td.n { font-weight: 700; color: var(--primary); }
     }
 
@@ -106,6 +114,7 @@
       table { table-layout: auto; }
       thead { display: table-header-group; }
       tr { page-break-inside: avoid; }
+      tr.off { display: none; }
       td, th { border: 1px solid #999; padding: 4px 6px; font-size: 10pt; min-width: 0 !important; white-space: normal !important; }
       td.t { white-space: nowrap !important; }
       th { background: #eee !important; position: static; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -140,7 +149,13 @@
     function dotTime(t) { return String(t || '').replace(':', '.'); }
     function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
     function escBr(s) { return esc(s).replace(/\r?\n/g, '<br>'); }
-    function cell(r, k) { return k === 'date' ? thaiShort(r.date) : (k === 'outAt' || k === 'onAt') ? dotTime(r[k]) : (r[k] || ''); }
+    function cell(r, k) {
+      if (k === 'date') return thaiShort(r.date);
+      if (k === 'outAt' || k === 'onAt') return dotTime(r[k]);
+      // งานรวม (ไฟดับวงกว้าง) หลายแจ้งเป็นแถวเดียว
+      if (k === 'area' && r.reports > 1) return (r.area || '') + ' (รวม ' + r.reports + ' แจ้ง)';
+      return r[k] || '';
+    }
     function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
 
     var ICON = {
@@ -149,6 +164,7 @@
       doc: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h6"/>',
       alert: '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
       inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13l3.5 7v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>',
+      copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
       lock: '<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'
     };
     function icon(n, s) { s = s || 18; return '<svg class="ic" width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + ICON[n] + '</svg>'; }
@@ -189,6 +205,7 @@
       fetchRows(state.from, state.to).then(function (d) {
         if (seq !== state.seq) return;
         state.loading = false; state.rows = d.rows; state.from = d.from; state.to = d.to;
+        state.off = {}; // แถวที่ไม่เลือก (เริ่มต้นเลือกทุกแถว)
         render();
       }, function (e) {
         if (seq !== state.seq) return;
@@ -218,24 +235,33 @@
       } else if (state.loading || !state.rows) {
         html += '<div class="bar"><h2>&nbsp;</h2></div><div class="card" aria-busy="true"><div class="skel"></div><div class="skel" style="width:80%"></div><div class="skel" style="width:60%"></div></div>';
       } else {
-        var rows = state.rows;
-        html += '<div class="print-head"><h1>รายงานผลการปฏิบัติงาน กฟส.บางปลาม้า</h1><p>' + rangeLabel(state.from, state.to) + ' · ' + rows.length + ' รายการ</p></div>' +
-          '<div class="bar"><h2>' + rows.length + ' รายการ<small>' + rangeLabel(state.from, state.to) + '</small></h2>' +
-          (rows.length ? '<div class="exports"><button class="btn" id="print">' + icon('print') + 'พิมพ์ / PDF</button>' +
-            '<button class="btn" id="xlsx">' + icon('sheet') + 'Excel</button><button class="btn" id="doc">' + icon('doc') + 'Word</button></div>' : '') + '</div>';
+        var rows = state.rows, sel = selected(), n = 0, none = !sel.length;
+        var dis = none ? ' disabled' : '';
+        html += '<div class="print-head"><h1>รายงานผลการปฏิบัติงาน กฟส.บางปลาม้า</h1><p>' + rangeLabel(state.from, state.to) + ' · ' + sel.length + ' รายการ</p></div>' +
+          '<div class="bar"><h2>' + (sel.length === rows.length ? rows.length + ' รายการ' : 'เลือก ' + sel.length + ' จาก ' + rows.length + ' รายการ') +
+          '<small>' + rangeLabel(state.from, state.to) + '</small></h2>' +
+          (rows.length ? '<div class="exports"><button class="btn" id="print"' + dis + '>' + icon('print') + 'พิมพ์ / PDF</button>' +
+            '<button class="btn" id="xlsx"' + dis + '>' + icon('sheet') + 'Excel</button><button class="btn" id="doc"' + dis + '>' + icon('doc') + 'Word</button>' +
+            '<button class="btn" id="copy"' + dis + '>' + icon('copy') + 'คัดลอกตาราง</button></div>' : '') + '</div>';
         if (!rows.length) {
           html += '<div class="card empty">' + icon('inbox', 40) + '<b>ไม่มีผลการปฏิบัติงานในช่วงนี้</b>แสดงเฉพาะงานที่ช่างกด "บันทึกผล" ในหน้าเคสแล้ว ลองเลือกช่วงวันอื่น</div>';
         } else {
-          html += '<div class="card table-wrap"><table><thead><tr><th>ลำดับ</th>' + COLS.map(function (c) { return '<th>' + c[1] + '</th>'; }).join('') +
-            '</tr></thead><tbody>' + rows.map(function (r, i) {
-              return '<tr><td class="n" data-label="ลำดับ">' + (i + 1) + '</td>' + COLS.map(function (c) {
+          var all = sel.length === rows.length;
+          html += '<div class="card table-wrap"><table><thead><tr><th class="pick no-print"><label class="tick"><input type="checkbox" id="pick-all"' + (all ? ' checked' : '') +
+            ' aria-label="เลือกทุกแถว"></label></th><th>ลำดับ</th>' + COLS.map(function (c) { return '<th>' + c[1] + '</th>'; }).join('') +
+            '</tr></thead><tbody>' + rows.map(function (r) {
+              var on = !state.off[r.caseId];
+              if (on) n++;
+              return '<tr' + (on ? '' : ' class="off"') + '><td class="pick no-print" data-label="พิมพ์"><label class="tick"><input type="checkbox" data-pick="' + esc(r.caseId) + '"' +
+                (on ? ' checked' : '') + ' aria-label="เลือกแถว ' + esc(cell(r, 'area')) + '"></label></td>' +
+                '<td class="n" data-label="ลำดับ">' + (on ? n : '-') + '</td>' + COLS.map(function (c) {
                 var v = cell(r, c[0]);
                 var cls = c[0] === 'date' || c[0] === 'outAt' || c[0] === 'onAt' ? 't' : c[0] === 'area' || c[0] === 'fix' ? 'w' : 'm';
                 return '<td class="' + cls + '" data-label="' + c[1] + '">' +
                   (v ? escBr(v) : '<span class="muted">-</span>') + '</td>';
               }).join('') + '</tr>';
             }).join('') + '</tbody></table></div>' +
-            '<p class="hint">PDF: กด "พิมพ์ / PDF" แล้วเลือกเครื่องพิมพ์เป็น "บันทึกเป็น PDF"</p>';
+            '<p class="hint">ติ๊กออกแถวที่ไม่ต้องการ แล้วพิมพ์/ส่งออกเฉพาะที่เลือก · PDF: กด "พิมพ์ / PDF" แล้วเลือกเครื่องพิมพ์เป็น "บันทึกเป็น PDF"</p>';
         }
       }
       app.innerHTML = html + '</main>';
@@ -252,10 +278,36 @@
       a.click();
       setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
     }
+    function selected() { return (state.rows || []).filter(function (r) { return !state.off[r.caseId]; }); }
+    /** หัวตาราง + แถวที่เลือก ใช้ร่วมกันทั้ง Excel, Word และคัดลอก */
     function matrix() {
-      return [['ลำดับ'].concat(COLS.map(function (c) { return c[1]; }))].concat(state.rows.map(function (r, i) {
+      return [['ลำดับ'].concat(COLS.map(function (c) { return c[1]; }))].concat(selected().map(function (r, i) {
         return [i + 1].concat(COLS.map(function (c) { return cell(r, c[0]); }));
       }));
+    }
+
+    /** คัดลอกเป็นข้อความคั่นด้วยแท็บ วางใน Excel/Google Sheets แล้วแยกช่องให้เอง */
+    function copyTable() {
+      var text = matrix().map(function (r) {
+        return r.map(function (v) { return String(v).replace(/[\t\r\n]+/g, ' '); }).join('\t');
+      }).join('\n');
+      var done = function () { alertBox('คัดลอกแล้ว ' + selected().length + ' รายการ · วางใน Excel หรือระบบอื่นได้เลย'); };
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).then(done, function () { fallbackCopy(text) ? done() : alertBox('คัดลอกไม่สำเร็จ ลองใช้ปุ่ม Excel แทน'); });
+      } else if (fallbackCopy(text)) done();
+      else alertBox('คัดลอกไม่สำเร็จ ลองใช้ปุ่ม Excel แทน');
+    }
+    function fallbackCopy(text) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.cssText = 'position:fixed;top:0;left:-9999px';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (e) {}
+      ta.remove();
+      return ok;
     }
 
     var xlsxLoading = null;
@@ -289,7 +341,7 @@
         '<head><meta charset="utf-8"><style>@page Section1{size:841.9pt 595.3pt;mso-page-orientation:landscape;margin:36pt 30pt}div.Section1{page:Section1}' +
         'body{font-family:"TH SarabunPSK","Tahoma",sans-serif;font-size:14pt}table{border-collapse:collapse;width:100%}' +
         'td,th{border:1px solid #777;padding:3pt 5pt;vertical-align:top;font-size:13pt}th{background:#eee}</style></head><body><div class="Section1">' +
-        '<h2 style="margin:0">รายงานผลการปฏิบัติงาน กฟส.บางปลาม้า</h2><p>' + rangeLabel(state.from, state.to) + ' · ' + state.rows.length + ' รายการ</p><table>' +
+        '<h2 style="margin:0">รายงานผลการปฏิบัติงาน กฟส.บางปลาม้า</h2><p>' + rangeLabel(state.from, state.to) + ' · ' + selected().length + ' รายการ</p><table>' +
         m.map(function (r, i) { var tag = i ? 'td' : 'th'; return '<tr>' + r.map(function (v) { return '<' + tag + '>' + escBr(v) + '</' + tag + '>'; }).join('') + '</tr>'; }).join('') +
         '</table></div></body></html>';
       download(new Blob(['﻿', html], { type: 'application/msword' }), fileBase() + '.doc');
@@ -324,6 +376,21 @@
       else if (t.id === 'print') window.print();
       else if (t.id === 'xlsx') exportXlsx(t);
       else if (t.id === 'doc') exportDoc();
+      else if (t.id === 'copy') copyTable();
+    });
+
+    // ติ๊กเลือก/ไม่เลือกแถว (ทีละแถว หรือทั้งหมด)
+    document.addEventListener('change', function (e) {
+      var t = e.target;
+      if (t.id === 'pick-all') {
+        state.off = {};
+        if (!t.checked) (state.rows || []).forEach(function (r) { state.off[r.caseId] = true; });
+      } else if (t.dataset && t.dataset.pick) {
+        if (t.checked) delete state.off[t.dataset.pick]; else state.off[t.dataset.pick] = true;
+      } else return;
+      var y = window.scrollY;
+      render();
+      window.scrollTo(0, y);
     });
 
     // ---------- ข้อมูลตัวอย่าง ----------
