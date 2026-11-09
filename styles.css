@@ -702,3 +702,15 @@ button.datebar-mid u { text-underline-offset: 2px; color: #fff; }
 .small-link { flex: none; min-height: 44px; padding: 0 10px; border: 0; background: transparent; color: var(--danger); font-weight: 600; }
 .group-go { margin-top: 12px; width: 100%; }
 .group-line { color: var(--geo-ink); font-weight: 600; }
+
+/* ตัวอย่างการ์ด Flex ที่จะส่งเข้ากลุ่ม (โหมดตัวอย่างเท่านั้น) */
+.fx-card { max-width: 340px; margin: 8px auto 12px; border-radius: 14px; overflow: hidden; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.15); text-align: left; }
+.fx-head { background: #F2B705; padding: 12px; display: flex; }
+.fx-body { padding: 12px; }
+.fx-foot { padding: 10px; }
+.fx-box { display: flex; flex-direction: column; gap: 4px; }
+.fx-box + .fx-box, .fx-body > .fx-box > .fx-box { margin-top: 4px; }
+.fx-horizontal, .fx-baseline { flex-direction: row; gap: 8px; align-items: baseline; }
+.fx-text { min-width: 0; overflow-wrap: anywhere; line-height: 1.4; }
+.fx-sep { border: 0; border-top: 1px solid #E3E4E8; margin: 8px 0; }
+.fx-btn { display: block; text-align: center; background: #8A5A00; color: #fff; border-radius: 8px; padding: 10px; font-weight: 700; min-height: 44px; box-sizing: border-box; }

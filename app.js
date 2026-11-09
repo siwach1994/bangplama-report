@@ -831,6 +831,78 @@
     }).join('\n');
   }
 
+  /** เวลาไทยตอนนี้ HH:MM (ใช้เมื่อ API ไม่ส่ง workAt กลับมา) */
+  function nowThaiTime() {
+    var d = new Date(Date.now() + 7 * 3600000);
+    return ('0' + d.getUTCHours()).slice(-2) + ':' + ('0' + d.getUTCMinutes()).slice(-2);
+  }
+
+  function fxText(text, o) { return Object.assign({ type: 'text', text: String(text || '-').slice(0, 300), size: 'sm', color: '#5A5F6B', wrap: true }, o || {}); }
+  function fxRow(label, value, bold) {
+    return {
+      type: 'box', layout: 'baseline', spacing: 'sm', contents: [
+        fxText(label, { flex: 2, color: '#7A7F8A', size: 'xs' }),
+        fxText(value, { flex: 5, color: '#17181C', weight: bold ? 'bold' : 'regular' })
+      ]
+    };
+  }
+
+  /**
+   * การ์ดสถานะงาน (หน้าตาเดียวกับการ์ดรับแจ้งของบอท) ส่งในนามช่างผ่าน liff.sendMessages ไม่กินโควตาบอท
+   * kind: 'doing' = รับงาน · 'done' = งานเสร็จ (ใส่ผลปฏิบัติงานครบทุกช่อง ดูจากการ์ดได้โดยไม่ต้องเปิดเคส)
+   * altText ขึ้นต้นด้วย WORK_MARK / '🔧 เคส #' เหมือนข้อความเดิม (การ์ดไม่ถูกอ่านเป็นรับแจ้งอยู่แล้ว)
+   */
+  function workFlex(c, kind, info) {
+    var done = kind === 'done';
+    var seq = c.seq;
+    var title = String(c.title || 'รายการรับแจ้ง').slice(0, 80);
+    var place = String(c.approxAddress || c.address || '').slice(0, 80);
+    var body = [fxText(title, { size: 'md', weight: 'bold', color: '#17181C', maxLines: 3 })];
+    if (place && title.indexOf(place) < 0) body.push(fxText(place, { maxLines: 2 }));
+    var meta = [fxRow('แจ้ง', shortDate(c.reportDate) + ' ' + (c.time || '') + ' น.' + (c.reporterName ? ' · ' + c.reporterName : ''))];
+    if (c.group) meta.push(fxRow('กลุ่ม', c.group));
+    if (c.groupSize > 1) meta.push(fxRow('รวมงาน', c.groupSize + ' แจ้ง'));
+    meta.push(fxRow('รับงาน', (info.by || '-') + (info.startAt ? ' · ' + info.startAt + ' น.' : '')));
+    if (done) meta.push(fxRow('เสร็จ', (info.doneBy || info.by || '-') + (info.doneAt ? ' · ' + info.doneAt + ' น.' : '')));
+    body.push({ type: 'box', layout: 'vertical', margin: 'md', spacing: 'xs', contents: meta });
+    if (done) {
+      body.push({ type: 'separator', margin: 'md' });
+      body.push(fxText('ผลการปฏิบัติงาน', { margin: 'md', weight: 'bold', color: '#17181C' }));
+      body.push({
+        type: 'box', layout: 'vertical', margin: 'sm', spacing: 'xs',
+        contents: WORK_FIELDS.map(function (f) {
+          return fxRow(f.label.replace(' (ชื่อ ตำแหน่ง)', ''), workValue(f, info.v) || '-', f.k === 'fix' || f.k === 'cause');
+        })
+      });
+    }
+    body.push({
+      type: 'box', layout: 'horizontal', margin: 'md', contents: [
+        fxText('สถานะ', { flex: 0 }),
+        fxText(done ? '✅ เสร็จแล้ว' : '🔧 กำลังทำ', { align: 'end', weight: 'bold', color: done ? '#1B6E2E' : '#8A4B00' })
+      ]
+    });
+    var head = done ? '✅ งานเสร็จ เคส #' + seq : '🔧 รับงานเคส #' + seq;
+    var alt = done ? WORK_MARK + ' เคส #' + seq + ' · ' + title : '🔧 เคส #' + seq + ' ' + (info.by || '') + ' รับงานแล้ว · ' + title;
+    var uri = CFG.LIFF_ID ? 'https://liff.line.me/' + CFG.LIFF_ID + '?case=' + encodeURIComponent(c.caseId) : '';
+    var bubble = {
+      type: 'bubble', size: done ? 'mega' : 'kilo',
+      header: {
+        type: 'box', layout: 'vertical', backgroundColor: '#F2B705', paddingAll: '12px',
+        contents: [{ type: 'text', text: head, color: '#1F1A00', weight: 'bold', size: 'md' }]
+      },
+      body: { type: 'box', layout: 'vertical', paddingAll: '12px', spacing: 'xs', contents: body }
+    };
+    if (uri) {
+      bubble.footer = {
+        type: 'box', layout: 'vertical', paddingAll: '10px', contents: [{
+          type: 'button', style: 'primary', color: '#8A5A00', height: 'sm',
+          action: { type: 'uri', label: done ? 'ดูเคส' : 'เปิดเคส / อัปเดตงาน', uri: uri }
+        }]
+      };
+    }
+    return { type: 'flex', altText: alt.slice(0, 390), contents: bubble };
+  }
+
   /** ' · แจ้งในกลุ่ม X' ต่อท้ายบรรทัดแรกของข้อความเข้ากลุ่ม (รับแจ้งหลายกลุ่ม) ต้นข้อความคงเดิมให้ parser ข้ามได้ */
   function groupNote(c) {
     return c.group ? ' · แจ้งในกลุ่ม' + c.group : '';
@@ -962,18 +1034,38 @@
   }
 
   /** ส่งข้อความเข้ากลุ่มในนามผู้ใช้ (liff.sendMessages ไม่กินโควตาบอท) · โหมดตัวอย่างแสดงหน้าตาข้อความแทน */
-  function sendToGroup(text) {
+  /** แสดงการ์ด Flex แบบคร่าวๆ ในโหมดตัวอย่าง (รองรับเฉพาะ box/text/separator/button ที่ workFlex ใช้) */
+  function flexPreview(n) {
+    if (!n) return '';
+    if (n.type === 'bubble') {
+      return '<div class="fx-card"><div class="fx-head">' + flexPreview(n.header.contents[0]) + '</div>' +
+        '<div class="fx-body">' + flexPreview(n.body) + '</div>' + (n.footer ? '<div class="fx-foot">' + flexPreview(n.footer) + '</div>' : '') + '</div>';
+    }
+    if (n.type === 'box') {
+      return '<div class="fx-box fx-' + n.layout + '">' + n.contents.map(flexPreview).join('') + '</div>';
+    }
+    if (n.type === 'separator') return '<hr class="fx-sep">';
+    if (n.type === 'button') return '<span class="fx-btn">' + esc(n.action.label) + '</span>';
+    var st = 'flex:' + (n.flex === 0 ? '0 0 auto' : (n.flex == null ? 1 : n.flex) + ' 1 0') + ';color:' + (n.color || '#17181C') + ';' + (n.weight === 'bold' ? 'font-weight:700;' : '') +
+      (n.align === 'end' ? 'text-align:right;' : '') + 'font-size:' + ({ xs: '13px', sm: '14px', md: '16px' }[n.size] || '15px');
+    return '<span class="fx-text" style="' + st + '">' + esc(n.text) + '</span>';
+  }
+
+  /** ส่งการ์ดเข้ากลุ่ม ถ้าส่งการ์ดไม่ได้ (LINE รุ่นเก่า) ส่งเป็นข้อความ text แทน */
+  function sendToGroup(text, flex) {
     if (DEMO) {
       overlay.innerHTML = '<div class="backdrop" data-action="close"></div><div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sg-t">' +
-        '<div class="sheet-handle"></div><h3 id="sg-t">ข้อความที่จะส่งเข้ากลุ่ม</h3>' +
+        '<div class="sheet-handle"></div><h3 id="sg-t">การ์ดที่จะส่งเข้ากลุ่ม</h3>' +
         '<p class="work-hint">โหมดตัวอย่างไม่ได้ส่งจริง · ของจริงจะส่งในชื่อคุณ</p>' +
-        '<div class="chat-bubble">' + esc(text) + '</div>' +
+        (flex ? flexPreview(flex.contents) : '<div class="chat-bubble">' + esc(text) + '</div>') +
         '<div class="btn-row one"><button class="btn primary" data-action="close">ปิด</button></div></div>';
       overlay.querySelector('.btn.primary').focus();
       return Promise.resolve(true);
     }
     if (!window.liff || !liff.isInClient || !liff.isInClient()) return Promise.resolve(false);
-    return liff.sendMessages([{ type: 'text', text: text }]).then(function () { return true; }, function () { return false; });
+    var asText = function () { return liff.sendMessages([{ type: 'text', text: text }]); };
+    var first = flex ? liff.sendMessages([flex]).catch(asText) : asText();
+    return first.then(function () { return true; }, function () { return false; });
   }
 
   function afterSend(ok, done) {
@@ -1023,8 +1115,10 @@
       return;
     }
     if (a === 'work-start') {
-      workCall(c, { status: 'doing' }, function () {
-        sendToGroup('🔧 เคส #' + c.seq + ' ' + (state.me.name || '') + ' รับงานแล้ว' + groupNote(c) + '\n' + c.title).then(function (ok) { afterSend(ok, false); });
+      workCall(c, { status: 'doing' }, function (upd) {
+        var by = (upd && upd.workBy) || state.me.name || '';
+        var card = workFlex(c, 'doing', { by: by, startAt: (upd && upd.workAt) || nowThaiTime() });
+        sendToGroup('🔧 เคส #' + c.seq + ' ' + by + ' รับงานแล้ว' + groupNote(c) + '\n' + c.title, card).then(function (ok) { afterSend(ok, false); });
       });
       return;
     }
@@ -1041,11 +1135,16 @@
       WORK_FIELDS.forEach(function (f) { v[f.k] = String(w.v[f.k] == null ? '' : w.v[f.k]).trim(); if (f.upper) v[f.k] = v[f.k].toUpperCase(); });
       lsSet(WORKER_KEY, v.by);
       rememberWork(v);
-      workCall(c, { status: 'done', work: v }, function () {
+      // ใครรับงานและเมื่อไร ต้องจำไว้ก่อนบันทึก เพราะหลังบันทึก workBy/workAt จะเป็นของตอนเสร็จ
+      var started = c.workStatus === 'doing' ? { by: c.workBy, at: c.workAt } : {};
+      workCall(c, { status: 'done', work: v }, function (upd) {
         lsSet('rb_work_' + c.caseId, null);
         if (state.work && state.work.caseId === c.caseId) { state.work.open = false; state.work.dirty = false; state.work.v = v; }
         if (navigator.vibrate) navigator.vibrate(15);
-        sendToGroup(workMessage(c, v)).then(function (ok) { afterSend(ok, true); });
+        var doneBy = (upd && upd.workBy) || state.me.name || '';
+        var doneAt = (upd && upd.workAt) || nowThaiTime();
+        var card = workFlex(c, 'done', { v: v, by: started.by || doneBy, startAt: started.at || doneAt, doneBy: doneBy, doneAt: doneAt });
+        sendToGroup(workMessage(c, v), card).then(function (ok) { afterSend(ok, true); });
       });
     }
   }
