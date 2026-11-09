@@ -139,7 +139,17 @@
     ];
     var PRESETS = [['today', 'วันนี้'], ['yesterday', 'เมื่อวาน'], ['7d', '7 วันล่าสุด'], ['month', 'เดือนนี้']];
     var app = document.getElementById('app');
-    var state = { preset: 'today', from: '', to: '', rows: null, error: null, loading: false, seq: 0 };
+    var state = { preset: 'today', from: '', to: '', rows: null, error: null, loading: false, seq: 0, grp: '' };
+    // รับแจ้ง 2 กลุ่ม: แถวมีชื่อกลุ่ม → เพิ่มคอลัมน์ "กลุ่มที่แจ้ง" และปุ่มกรองกลุ่ม (บอทเดียว = ไม่มี)
+    function groupsOf(rows) {
+      var out = [];
+      (rows || []).forEach(function (r) { if (r.group && out.indexOf(r.group) < 0) out.push(r.group); });
+      return out;
+    }
+    function cols() {
+      return groupsOf(state.rows).length ? COLS.slice(0, 1).concat([['group', 'กลุ่มที่แจ้ง']], COLS.slice(1)) : COLS;
+    }
+    function shown() { return (state.rows || []).filter(function (r) { return !state.grp || r.group === state.grp; }); }
 
     function todayKey() { return new Date(Date.now() + TZ).toISOString().slice(0, 10); }
     function addDays(k, n) { var p = k.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2] + n)).toISOString().slice(0, 10); }
@@ -206,6 +216,7 @@
         if (seq !== state.seq) return;
         state.loading = false; state.rows = d.rows; state.from = d.from; state.to = d.to;
         state.off = {}; // แถวที่ไม่เลือก (เริ่มต้นเลือกทุกแถว)
+        if (groupsOf(d.rows).indexOf(state.grp) < 0) state.grp = '';
         render();
       }, function (e) {
         if (seq !== state.seq) return;
@@ -235,11 +246,15 @@
       } else if (state.loading || !state.rows) {
         html += '<div class="bar"><h2>&nbsp;</h2></div><div class="card" aria-busy="true"><div class="skel"></div><div class="skel" style="width:80%"></div><div class="skel" style="width:60%"></div></div>';
       } else {
-        var rows = state.rows, sel = selected(), n = 0, none = !sel.length;
+        var rows = shown(), sel = selected(), n = 0, none = !sel.length, COLS_ = cols(), grps = groupsOf(state.rows);
         var dis = none ? ' disabled' : '';
         html += '<div class="print-head"><h1>รายงานผลการปฏิบัติงาน กฟส.บางปลาม้า</h1><p>' + rangeLabel(state.from, state.to) + ' · ' + sel.length + ' รายการ</p></div>' +
           '<div class="bar"><h2>' + (sel.length === rows.length ? rows.length + ' รายการ' : 'เลือก ' + sel.length + ' จาก ' + rows.length + ' รายการ') +
           '<small>' + rangeLabel(state.from, state.to) + '</small></h2>' +
+          (grps.length > 1 ? '<div class="chips no-print" role="group" aria-label="กรองตามกลุ่มที่แจ้ง">' +
+            [['', 'ทุกกลุ่ม']].concat(grps.map(function (g) { return [g, g]; })).map(function (g) {
+              return '<button class="chip" data-grp="' + esc(g[0]) + '" aria-pressed="' + (state.grp === g[0]) + '">' + esc(g[1]) + '</button>';
+            }).join('') + '</div>' : '') +
           (rows.length ? '<div class="exports"><button class="btn" id="print"' + dis + '>' + icon('print') + 'พิมพ์ / PDF</button>' +
             '<button class="btn" id="xlsx"' + dis + '>' + icon('sheet') + 'Excel</button><button class="btn" id="doc"' + dis + '>' + icon('doc') + 'Word</button>' +
             '<button class="btn" id="copy"' + dis + '>' + icon('copy') + 'คัดลอกตาราง</button></div>' : '') + '</div>';
@@ -248,13 +263,13 @@
         } else {
           var all = sel.length === rows.length;
           html += '<div class="card table-wrap"><table><thead><tr><th class="pick no-print"><label class="tick"><input type="checkbox" id="pick-all"' + (all ? ' checked' : '') +
-            ' aria-label="เลือกทุกแถว"></label></th><th>ลำดับ</th>' + COLS.map(function (c) { return '<th>' + c[1] + '</th>'; }).join('') +
+            ' aria-label="เลือกทุกแถว"></label></th><th>ลำดับ</th>' + COLS_.map(function (c) { return '<th>' + c[1] + '</th>'; }).join('') +
             '</tr></thead><tbody>' + rows.map(function (r) {
               var on = !state.off[r.caseId];
               if (on) n++;
               return '<tr' + (on ? '' : ' class="off"') + '><td class="pick no-print" data-label="พิมพ์"><label class="tick"><input type="checkbox" data-pick="' + esc(r.caseId) + '"' +
                 (on ? ' checked' : '') + ' aria-label="เลือกแถว ' + esc(cell(r, 'area')) + '"></label></td>' +
-                '<td class="n" data-label="ลำดับ">' + (on ? n : '-') + '</td>' + COLS.map(function (c) {
+                '<td class="n" data-label="ลำดับ">' + (on ? n : '-') + '</td>' + COLS_.map(function (c) {
                 var v = cell(r, c[0]);
                 var cls = c[0] === 'date' || c[0] === 'outAt' || c[0] === 'onAt' ? 't' : c[0] === 'area' || c[0] === 'fix' ? 'w' : 'm';
                 return '<td class="' + cls + '" data-label="' + c[1] + '">' +
@@ -278,11 +293,12 @@
       a.click();
       setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
     }
-    function selected() { return (state.rows || []).filter(function (r) { return !state.off[r.caseId]; }); }
+    function selected() { return shown().filter(function (r) { return !state.off[r.caseId]; }); }
     /** หัวตาราง + แถวที่เลือก ใช้ร่วมกันทั้ง Excel, Word และคัดลอก */
     function matrix() {
-      return [['ลำดับ'].concat(COLS.map(function (c) { return c[1]; }))].concat(selected().map(function (r, i) {
-        return [i + 1].concat(COLS.map(function (c) { return cell(r, c[0]); }));
+      var C = cols();
+      return [['ลำดับ'].concat(C.map(function (c) { return c[1]; }))].concat(selected().map(function (r, i) {
+        return [i + 1].concat(C.map(function (c) { return cell(r, c[0]); }));
       }));
     }
 
@@ -328,7 +344,9 @@
       btn.disabled = true;
       loadXlsx().then(function () {
         var ws = XLSX.utils.aoa_to_sheet(matrix());
-        ws['!cols'] = [6, 10, 9, 9, 16, 28, 14, 20, 24, 20, 20].map(function (w) { return { wch: w }; });
+        var wid = [6, 10, 9, 9, 16, 28, 14, 20, 24, 20, 20];
+        if (cols().length > COLS.length) wid.splice(2, 0, 14);
+        ws['!cols'] = wid.map(function (w) { return { wch: w }; });
         var wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, 'ผลปฏิบัติงาน');
         XLSX.writeFile(wb, fileBase() + '.xlsx');
@@ -360,7 +378,10 @@
     document.addEventListener('click', function (e) {
       var t = e.target.closest('button');
       if (!t) return;
-      if (t.dataset.preset) {
+      if (t.dataset.grp !== undefined) {
+        state.grp = t.dataset.grp;
+        render();
+      } else if (t.dataset.preset) {
         state.preset = t.dataset.preset;
         var r = presetRange(state.preset);
         state.from = r[0]; state.to = r[1];
@@ -384,7 +405,7 @@
       var t = e.target;
       if (t.id === 'pick-all') {
         state.off = {};
-        if (!t.checked) (state.rows || []).forEach(function (r) { state.off[r.caseId] = true; });
+        if (!t.checked) shown().forEach(function (r) { state.off[r.caseId] = true; });
       } else if (t.dataset && t.dataset.pick) {
         if (t.checked) delete state.off[t.dataset.pick]; else state.off[t.dataset.pick] = true;
       } else return;
@@ -404,7 +425,7 @@
         A.forEach(function (a, j) {
           if ((i + j) % 2) return;
           list.push({ caseId: d.replace(/-/g, '') + '-00' + (j + 1), date: d, outAt: ('0' + (8 + j * 3)).slice(-2) + ':' + (j ? '15' : '40'),
-            onAt: ('0' + (9 + j * 3)).slice(-2) + ':0' + j, area: a[0], device: a[1], trans: j === 2 ? '12-345678' : '', cause: a[2], fix: a[3], used: a[4], by: 'ช่างตัวอย่าง ผปร' });
+            onAt: ('0' + (9 + j * 3)).slice(-2) + ':0' + j, area: a[0], device: a[1], trans: j === 2 ? '12-345678' : '', cause: a[2], fix: a[3], used: a[4], by: 'ช่างตัวอย่าง ผปร', group: j === 1 ? 'กลุ่มรับแจ้ง 2' : 'มดงาน' });
         });
         d = addDays(d, 1); i++;
       }

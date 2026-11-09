@@ -692,9 +692,12 @@
     try { var a = JSON.parse(lsGet('rb_nogroup_' + id) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; }
   }
 
+  // รับแจ้งหลายกลุ่ม: รายการในงานรวมอาจมาจากคนละกลุ่ม แสดงป้ายกลุ่มกำกับ
+  function grpTag(m) { return m.group ? ' <span class="grp-tag">' + esc(m.group) + '</span>' : ''; }
+
   function miniRow(m, extra) {
     return '<li><a href="#/case/' + encodeURIComponent(m.caseId) + '"><span class="mono">' + esc(m.time) + '</span> <b>#' + m.seq + '</b> ' +
-      esc(m.title || 'รายการรับแจ้ง') + '</a>' + (extra || '') + '</li>';
+      esc(m.title || 'รายการรับแจ้ง') + grpTag(m) + '</a>' + (extra || '') + '</li>';
   }
 
   function groupSection(c) {
@@ -724,7 +727,7 @@
         '<p class="work-hint">แจ้งห่างกันไม่เกิน 1 ชม. และอยู่ใกล้กัน ถ้าเป็นไฟดับจุดเดียวกัน รวมเป็นงานเดียว แล้วบันทึกผลครั้งเดียว</p>' +
         '<ul class="group-list pick">' + cand.map(function (x) {
           return '<li><label class="group-pick"><input type="checkbox" data-gid="' + esc(x.caseId) + '" checked>' +
-            '<span><span class="mono">' + esc(x.time) + '</span> <b>#' + x.seq + '</b> ' + esc(x.title || 'รายการรับแจ้ง') +
+            '<span><span class="mono">' + esc(x.time) + '</span> <b>#' + x.seq + '</b> ' + esc(x.title || 'รายการรับแจ้ง') + grpTag(x) +
             '<small>แจ้งโดย ' + esc(x.reporterName || '-') + '</small></span></label></li>';
         }).join('') + '</ul><div class="btn-row"><button class="btn" data-action="group-dismiss">ไม่ใช่</button>' +
         '<button class="btn primary" data-action="group-join"' + (groupBusy ? ' disabled' : '') + '>' + (groupBusy ? 'กำลังรวม…' : 'รวมที่เลือก') + '</button></div></section>';
@@ -747,8 +750,10 @@
       var names = (c.groupCandidates || []).filter(function (x) { return pick.indexOf(x.caseId) >= 0; });
       groupCall('group', { caseId: c.caseId, ids: pick }, function (upd) {
         var all = upd.groupMembers || [];
-        sendToGroup(GROUP_MARK + ' ' + (all.length + 1) + ' แจ้งเป็นงานเดียว · งานหลัก #' + upd.seq + ' ' + (upd.title || '') + '\n' +
-          names.map(function (x) { return '+ #' + x.seq + ' ' + (x.title || ''); }).join('\n')).then(function (ok) {
+        sendToGroup(GROUP_MARK + ' ' + (all.length + 1) + ' แจ้งเป็นงานเดียว · งานหลัก #' + upd.seq + ' ' + (upd.title || '') + groupNote(c) + '\n' +
+          names.map(function (x) {
+            return '+ #' + x.seq + ' ' + (x.title || '') + (x.group && x.group !== c.group ? ' (กลุ่ม' + x.group + ')' : '');
+          }).join('\n')).then(function (ok) {
           if (!DEMO) toast(ok ? 'รวมแล้ว · แจ้งกลุ่มแล้ว' : 'รวมแล้ว แต่ส่งเข้ากลุ่มไม่ได้', !ok);
         });
       });
@@ -1782,7 +1787,7 @@
       var tb = toks(b.title + b.detail);
       return toks(a.title + a.detail).some(function (t) { return tb.indexOf(t) >= 0; });
     }
-    function mini(c) { return { caseId: c.caseId, seq: c.seq, reportDate: c.reportDate, time: c.time, title: c.title, reporterName: c.reporterName }; }
+    function mini(c) { return { caseId: c.caseId, seq: c.seq, reportDate: c.reportDate, time: c.time, title: c.title, reporterName: c.reporterName, group: c.group || '' }; }
     function members(id, g) { return cases.filter(function (x) { return g.of[x.caseId] === id; }); }
     function candidates(c, g) {
       if (c.hidden || c.done || g.of[c.caseId]) return [];
