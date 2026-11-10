@@ -65,6 +65,7 @@
     map: '<path d="m9 4-6 3v13l6-3 6 3 6-3V4l-6 3-6-3z"/><path d="M9 4v13M15 7v13"/>',
     alert: '<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/>',
     x: '<path d="M18 6 6 18M6 6l12 12"/>',
+    camera: '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3z"/><circle cx="12" cy="13" r="3.5"/>',
     copy: '<rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/>',
     link: '<path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/>',
     message: '<path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z"/>',
@@ -93,7 +94,7 @@
   var AUDIT_LABELS = {
     tick: 'ติ๊กว่าดำเนินการแล้ว', untick: 'ยกเลิกการติ๊ก',
     hide: 'ซ่อน · ไม่ใช่รายการรับแจ้ง', unhide: 'คืนรายการ',
-    start: 'รับงาน', work: 'บันทึกผลการปฏิบัติงาน', group: 'รวมเป็นงานเดียว', samejob: 'เคสซ้ำ · รวมเข้าเคสเดิม', repeat: 'ดับอีกรอบที่จุดเดิม', unrepeat: 'ยกเลิกดับอีกรอบ', ungroup: 'เอาออกจากงานรวม'
+    start: 'รับงาน', work: 'บันทึกผลการปฏิบัติงาน', group: 'รวมเป็นงานเดียว', samejob: 'เคสซ้ำ · รวมเข้าเคสเดิม', wphoto: 'เพิ่มรูปหน้างาน', wphotodel: 'ลบรูปหน้างาน', repeat: 'ดับอีกรอบที่จุดเดิม', unrepeat: 'ยกเลิกดับอีกรอบ', ungroup: 'เอาออกจากงานรวม'
   };
 
   // หน้าบันทึกผลการปฏิบัติงาน (ยังไม่มี API จริง เปิดเฉพาะโหมดตัวอย่าง หรือเมื่อ config.js ตั้ง WORKLOG: true)
@@ -669,7 +670,8 @@
 
     html += c.hidden
       ? '<button class="tick-btn done big" data-action="unhide" data-id="' + esc(c.caseId) + '">' + icon('undo', 22) + 'คืนรายการ (ซ่อนโดย ' + esc(c.hiddenBy) + ')</button>'
-      : groupSection(c) + (c.groupMain ? '' : (WORKLOG ? workSection(c) : tickButton(c, true))) + hideButton(c);
+      : groupSection(c) + (c.groupMain ? '' : (WORKLOG ? workSection(c) : tickButton(c, true))) +
+        (WORKLOG ? '<div id="wp-wrap">' + wpSection(c) + '</div>' : '') + hideButton(c);
 
     if (c.audit && c.audit.length) {
       html += '<h3 class="section-title">ประวัติ</h3><ul class="card audit">' + c.audit.map(function (a) {
@@ -927,6 +929,11 @@
     if (c.groupSize > 1) meta.push(fxRow('รวมงาน', c.groupSize + ' แจ้ง'));
     if (c.repeatFrom) meta.push(fxRow('ดับซ้ำ', 'จุดเดิมเคส #' + c.repeatFrom.seq + ' (' + c.repeatFrom.time + ' น.)', true));
     meta.push(fxRow('รับงาน', (info.by || '-') + (info.startAt ? ' · ' + info.startAt + ' น.' : '')));
+    var wps = c.workPhotos || [];
+    if (done && wps.length) {
+      var nb = wps.filter(function (p) { return p.kind === 'before'; }).length;
+      meta.push(fxRow('รูป', (nb ? 'ก่อนแก้ ' + nb + ' · ' : '') + 'หลังแก้ ' + (wps.length - nb) + ' รูป (ดูในเคส)'));
+    }
     if (done) meta.push(fxRow('เสร็จ', (info.doneBy || info.by || '-') + (info.doneAt ? ' · ' + info.doneAt + ' น.' : '')));
     body.push({ type: 'box', layout: 'vertical', margin: 'md', spacing: 'xs', contents: meta });
     if (done) {
@@ -1478,6 +1485,130 @@
     });
   }
 
+  // ---------- รูปหน้างาน ก่อน/หลังแก้ (เพิ่ม 10 พ.ย. 2569) ----------
+  // ถ่ายใหม่หรือเลือกจากเครื่อง ย่อเป็น JPEG ด้านยาว 1280 px ก่อนส่ง · ใครในกลุ่มก็เพิ่ม/ลบได้ · ไม่บังคับ
+  var WP_MAX = 6;
+  var WP_KINDS = [['before', 'ก่อนแก้'], ['after', 'หลังแก้']];
+  var wpUp = []; // รูปที่กำลังส่งหรือส่งไม่สำเร็จ (อยู่ในหน่วยความจำจนส่งได้ ปิดหน้าแล้วหาย) {key, caseId, kind, src, fail}
+  var wpSeq = 0;
+  var wpChain = Promise.resolve(); // ส่งทีละรูป ไม่ให้เน็ตมือถือแน่น
+
+  function wpSection(c) {
+    var list = c.workPhotos || [];
+    var ro = !!c.groupMain;
+    var pend = wpUp.filter(function (x) { return x.caseId === c.caseId; });
+    if (ro && !list.length) return '';
+    var full = list.length + pend.length >= WP_MAX;
+    var html = '<section class="card wp-card" aria-labelledby="wp-t"><h3 id="wp-t">' + icon('image', 18) + 'รูปหน้างาน</h3>' +
+      (ro ? '<p class="work-hint">เคสนี้รวมอยู่ในงานอื่น เพิ่มรูปที่งานหลัก</p>' : '<p class="work-hint">ถ่ายหรือเลือกจากเครื่อง รวมไม่เกิน ' + WP_MAX + ' รูป · ไม่บังคับ</p>');
+    WP_KINDS.forEach(function (k) {
+      var mine = list.filter(function (p) { return p.kind === k[0]; });
+      var up = pend.filter(function (x) { return x.kind === k[0]; });
+      html += '<div class="wp-row"><div class="wp-lab">' + k[1] + (mine.length ? ' <span>' + mine.length + ' รูป</span>' : '') + '</div><div class="wp-grid">' +
+        mine.map(function (p) {
+          return '<div class="wp-item"><button class="thumb" data-action="open-photo" data-file="' + esc(p.id) + '" aria-label="ดูรูป' + k[1] + (p.by ? ' โดย ' + esc(p.by) : '') + '">' +
+            '<img data-photo="' + esc(p.id) + '" data-size="thumb" alt=""></button>' +
+            ('<button class="wp-del" data-action="wp-del" data-file="' + esc(p.id) + '" aria-label="ลบรูปนี้">' + icon('x', 16) + '</button>') + '</div>';
+        }).join('') +
+        up.map(function (x) {
+          return '<div class="wp-item ' + (x.fail ? 'fail' : 'up') + '"><img src="' + x.src + '" alt="">' +
+            (x.fail
+              ? '<button class="wp-st" data-action="wp-retry" data-key="' + x.key + '">ส่งไม่สำเร็จ<br>แตะส่งใหม่</button><button class="wp-del" data-action="wp-drop" data-key="' + x.key + '" aria-label="ทิ้งรูปนี้">' + icon('x', 16) + '</button>'
+              : '<span class="wp-st" role="status">กำลังส่ง…</span>') + '</div>';
+        }).join('') +
+        (ro || full ? '' : '<label class="wp-add"><input type="file" accept="image/*" multiple data-wp="' + k[0] + '" class="sr-only">' +
+          icon('camera', 22) + '<span>เพิ่มรูป</span></label>') +
+        '</div></div>';
+    });
+    return html + '</section>';
+  }
+
+  function wpRender() {
+    var box = document.getElementById('wp-wrap');
+    var c = state.caseData;
+    if (!box || !c) return;
+    box.innerHTML = wpSection(c);
+    hydratePhotos(box);
+  }
+
+  function wpApply(caseId, list) {
+    patchCase(caseId, { workPhotos: list });
+    if (state.caseData && state.caseData.caseId === caseId) state.caseData.workPhotos = list;
+  }
+
+  function wpResize(file, max) {
+    return new Promise(function (resolve, reject) {
+      var url = URL.createObjectURL(file);
+      var img = new Image();
+      img.onload = function () {
+        var s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+        var cv = document.createElement('canvas');
+        cv.width = Math.max(1, Math.round(img.naturalWidth * s));
+        cv.height = Math.max(1, Math.round(img.naturalHeight * s));
+        cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url);
+        var out = cv.toDataURL('image/jpeg', 0.75);
+        if (out.length > 1300000) out = cv.toDataURL('image/jpeg', 0.55);
+        resolve(out);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('เปิดไฟล์นี้ไม่ได้ เลือกเป็นรูปภาพ')); };
+      img.src = url;
+    });
+  }
+
+  function wpPick(input) {
+    var c = state.caseData;
+    var kind = input.getAttribute('data-wp');
+    var files = Array.prototype.slice.call(input.files || []);
+    input.value = '';
+    if (!c || !files.length) return;
+    var room = WP_MAX - (c.workPhotos || []).length - wpUp.filter(function (x) { return x.caseId === c.caseId; }).length;
+    if (files.length > room) toast('ใส่ได้อีก ' + Math.max(room, 0) + ' รูป (รวมไม่เกิน ' + WP_MAX + ')', true);
+    files.slice(0, Math.max(room, 0)).forEach(function (f) {
+      wpResize(f, 1280).then(function (src) {
+        var x = { key: 'wp' + (++wpSeq), caseId: c.caseId, kind: kind, src: src, fail: false };
+        wpUp.push(x);
+        wpRender();
+        wpSend(x);
+      }, function (e) { toast(e.message, true); });
+    });
+  }
+
+  function wpSend(x) {
+    wpChain = wpChain.then(function () {
+      return Api.call('wphoto', { caseId: x.caseId, kind: x.kind, data: x.src }).then(function (r) {
+        wpUp = wpUp.filter(function (y) { return y !== x; });
+        wpApply(r.caseId, r.workPhotos);
+        wpRender();
+      }, function (e) {
+        x.fail = true;
+        wpRender();
+        toast('ส่งรูปไม่สำเร็จ: ' + e.message, true);
+      });
+    });
+  }
+
+  function wpAction(a, el) {
+    var c = state.caseData;
+    if (!c) return;
+    var key = el.getAttribute('data-key');
+    var x = wpUp.filter(function (y) { return y.key === key; })[0];
+    if (a === 'wp-retry' && x) { x.fail = false; wpRender(); wpSend(x); return; }
+    if (a === 'wp-drop' && x) { wpUp = wpUp.filter(function (y) { return y !== x; }); wpRender(); return; }
+    if (a !== 'wp-del') return;
+    var fileId = el.getAttribute('data-file');
+    var caseId = c.caseId;
+    confirmDialog({ title: 'ลบรูปนี้?', body: 'ลบแล้วกู้คืนไม่ได้ ทุกคนจะไม่เห็นรูปนี้อีก', ok: 'ลบรูป', danger: true }).then(function (yes) {
+      if (!yes) return;
+      el.disabled = true;
+      Api.call('wphotodel', { caseId: caseId, fileId: fileId }).then(function (r) {
+        wpApply(r.caseId, r.workPhotos);
+        wpRender();
+        toast('ลบรูปแล้ว');
+      }, function (e) { el.disabled = false; toast('ลบไม่สำเร็จ: ' + e.message, true); });
+    });
+  }
+
   // ---------- รูป ----------
 
   function loadPhoto(id, size) {
@@ -1615,6 +1746,7 @@
       case 'back': history.back(); break;
       case 'work-start': case 'work-open': case 'work-cancel': case 'work-save': case 'work-reopen': workAction(a); break;
       case 'wf-pick': pickChip(el); break;
+      case 'wp-del': case 'wp-retry': case 'wp-drop': wpAction(a, el); break;
       case 'group-join': case 'group-dismiss': case 'group-remove': case 'samejob': case 'repeat': case 'repeat-undo': groupAction(a, el); break;
     }
   });
@@ -1629,6 +1761,10 @@
   document.addEventListener('input', function (e) {
     if (e.target.id === 'q') onSearchInput(e.target.value);
     else if (e.target.hasAttribute('data-wf')) onWorkInput(e.target);
+  });
+
+  document.addEventListener('change', function (e) {
+    if (e.target.hasAttribute && e.target.hasAttribute('data-wp')) wpPick(e.target);
   });
 
   document.addEventListener('keydown', function (e) {
@@ -1907,6 +2043,7 @@
       });
       return s;
     }
+    var demoUp = {}, demoUpSeq = 0;
     function find(id) { return cases.filter(function (c) { return c.caseId === id; })[0]; }
     function carry(before) {
       return top(cases).filter(function (c) { return !c.hidden && !c.done && c.reportDate < before; });
@@ -1950,6 +2087,7 @@
         };
       },
       photo: function (p) {
+        if (demoUp[p.fileId]) return demoUp[p.fileId];
         return { mime: 'image/svg+xml', data: btoa(unescape(encodeURIComponent(demoPhoto(p.fileId)))) };
       },
       tick: function (p) {
@@ -2014,6 +2152,24 @@
         if (g.size[mainId] === 1) find(mainId).groupId = '';
         audit[c.caseId].push({ action: 'ungroup', name: 'ผู้ทดสอบ', time: nowHHMM(), date: todayKey() });
         return caseFull(find(mainId));
+      },
+      wphoto: function (p) {
+        var c = find(p.caseId);
+        if (!c || ginfo().of[c.caseId]) throw new ApiError('รายการนี้รวมอยู่ในงานอื่น เพิ่มรูปที่งานหลัก', 400);
+        c.workPhotos = c.workPhotos || [];
+        if (c.workPhotos.length >= 6) throw new ApiError('ใส่รูปได้ไม่เกิน 6 รูปต่อเคส', 400);
+        var id = 'demo-up-' + (++demoUpSeq);
+        demoUp[id] = { mime: 'image/jpeg', data: String(p.data).replace(/^data:image\/jpeg;base64,/, '') };
+        c.workPhotos.push({ id: id, kind: p.kind, by: 'ผู้ทดสอบ', time: nowHHMM() });
+        audit[c.caseId].push({ action: 'wphoto', name: 'ผู้ทดสอบ', time: nowHHMM(), date: todayKey() });
+        return { caseId: c.caseId, workPhotos: c.workPhotos.slice() };
+      },
+      wphotodel: function (p) {
+        var c = find(p.caseId);
+        c.workPhotos = (c.workPhotos || []).filter(function (x) { return x.id !== p.fileId; });
+        delete demoUp[p.fileId];
+        audit[c.caseId].push({ action: 'wphotodel', name: 'ผู้ทดสอบ', time: nowHHMM(), date: todayKey() });
+        return { caseId: c.caseId, workPhotos: c.workPhotos.slice() };
       },
       hide: function (p) {
         var c = find(p.caseId);

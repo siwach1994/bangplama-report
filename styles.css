@@ -731,3 +731,30 @@ button.datebar-mid u { text-underline-offset: 2px; color: #fff; }
 .fx-text { min-width: 0; overflow-wrap: anywhere; line-height: 1.4; }
 .fx-sep { border: 0; border-top: 1px solid #E3E4E8; margin: 8px 0; }
 .fx-btn { display: block; text-align: center; background: #8A5A00; color: #fff; border-radius: 8px; padding: 10px; font-weight: 700; min-height: 44px; box-sizing: border-box; }
+
+/* รูปหน้างาน ก่อน/หลังแก้ (10 พ.ย. 2569) */
+.wp-card { padding: 16px; margin-top: 14px; }
+.wp-card h3 { margin: 0; font-size: 17px; display: flex; align-items: center; gap: 6px; }
+.wp-row { margin-top: 14px; }
+.wp-lab { font-weight: 700; font-size: 15px; margin-bottom: 8px; }
+.wp-lab span { font-weight: 400; color: var(--ink-3); font-size: 14px; }
+.wp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; }
+.wp-item { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden; background: #E6E8EE; }
+.wp-item .thumb { width: 100%; height: 100%; border: 0; }
+.wp-item > img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.wp-item.up > img, .wp-item.fail > img { opacity: .45; }
+.wp-st {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center;
+  font: inherit; font-size: 13px; font-weight: 700; color: #17181C; background: transparent; border: 0; padding: 4px;
+}
+.wp-item.fail .wp-st { color: #B42318; }
+.wp-del {
+  position: absolute; top: 2px; right: 2px; width: 44px; height: 44px; border: 0; background: transparent; padding: 0;
+  display: flex; align-items: flex-start; justify-content: flex-end; color: #fff;
+}
+.wp-del svg { background: rgba(23, 24, 28, .72); border-radius: 50%; padding: 4px; box-sizing: content-box; margin: 4px; }
+.wp-add {
+  aspect-ratio: 1; border: 2px dashed var(--line); border-radius: 10px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 4px; color: var(--primary); font-weight: 700; font-size: 14px; cursor: pointer; min-height: 44px;
+}
+.wp-add:focus-within { outline: 3px solid var(--primary); outline-offset: 2px; }
