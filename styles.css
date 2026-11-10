@@ -702,6 +702,23 @@ button.datebar-mid u { text-underline-offset: 2px; color: #fff; }
 .small-link { flex: none; min-height: 44px; padding: 0 10px; border: 0; background: transparent; color: var(--danger); font-weight: 600; }
 .group-go { margin-top: 12px; width: 100%; }
 .group-line { color: var(--geo-ink); font-weight: 600; }
+/* ลงซ้ำกับเคสอื่น (พับไว้ ไม่รก) */
+.samejob summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; cursor: pointer;
+  font-size: 17px; font-weight: 700; list-style: none; }
+.samejob summary::-webkit-details-marker { display: none; }
+.samejob summary > span { display: flex; align-items: center; gap: 8px; }
+.samejob summary small { color: var(--ink-3); font-size: 13px; font-weight: 500; }
+.samejob summary::after { content: '▾'; color: var(--ink-3); }
+.samejob[open] summary::after { content: '▴'; }
+.samejob .group-list li { flex-wrap: wrap; }
+.sj-act { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; padding: 0 2px 4px; }
+.sj-st { font-size: 13px; color: var(--ink-3); }
+.sj-st.done { color: #1B6E2E; font-weight: 700; }
+.sj-st.doing { color: var(--todo-ink); font-weight: 700; }
+.sj-btns { display: flex; gap: 8px; }
+.group-card.repeat-card { border-color: var(--todo-line); background: #FFFBF2; }
+.group-card.repeat-card h3 { color: var(--todo-ink); }
+.btn.small { min-height: 44px; padding: 0 14px; font-size: 15px; width: auto; }
 
 /* ตัวอย่างการ์ด Flex ที่จะส่งเข้ากลุ่ม (โหมดตัวอย่างเท่านั้น) */
 .fx-card { max-width: 340px; margin: 8px auto 12px; border-radius: 14px; overflow: hidden; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.15); text-align: left; }

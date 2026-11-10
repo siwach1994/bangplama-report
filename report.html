@@ -46,6 +46,9 @@
     .controls { padding: 14px 16px; }
     .chips { display: flex; gap: 8px; flex-wrap: wrap; }
     .chip { min-height: 44px; padding: 0 16px; border-radius: var(--r-chip); border: 1px solid var(--line); background: #fff; font-weight: 600; color: var(--ink-2); }
+    .tabs { display: flex; gap: 4px; margin: 16px 0 0; padding: 4px; background: #ECEAF2; border-radius: var(--r-btn); }
+    .tab { flex: 1; min-height: 44px; border: 0; border-radius: 10px; background: transparent; font: inherit; font-weight: 600; color: var(--ink-2); }
+    .tab[aria-selected="true"] { background: #fff; color: var(--primary); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
     .chip[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; }
     .range { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-top: 12px; }
     .range label { display: flex; flex-direction: column; gap: 4px; font-size: 14px; font-weight: 600; color: var(--ink-2); flex: 1 1 140px; }
@@ -139,7 +142,9 @@
     ];
     var PRESETS = [['today', 'วันนี้'], ['yesterday', 'เมื่อวาน'], ['7d', '7 วันล่าสุด'], ['month', 'เดือนนี้']];
     var app = document.getElementById('app');
-    var state = { preset: 'today', from: '', to: '', rows: null, error: null, loading: false, seq: 0, grp: '' };
+    var state = { preset: 'today', from: '', to: '', rows: null, error: null, loading: false, seq: 0, grp: '', tab: 'all' };
+    // แท็บ "ดับซ้ำ": เฉพาะงานที่ช่างกด "ดับอีกรอบ" (แยกให้อัตโนมัติ) เพิ่มคอลัมน์เทียบกับครั้งก่อน
+    var REPEAT_COLS = [['repeat', 'ดับซ้ำจากเคส'], ['prevCause', 'สาเหตุ/การแก้ครั้งก่อน']];
     // รับแจ้ง 2 กลุ่ม: แถวมีชื่อกลุ่ม → เพิ่มคอลัมน์ "กลุ่มที่แจ้ง" และปุ่มกรองกลุ่ม (บอทเดียว = ไม่มี)
     function groupsOf(rows) {
       var out = [];
@@ -147,9 +152,15 @@
       return out;
     }
     function cols() {
-      return groupsOf(state.rows).length ? COLS.slice(0, 1).concat([['group', 'กลุ่มที่แจ้ง']], COLS.slice(1)) : COLS;
+      var c = groupsOf(state.rows).length ? COLS.slice(0, 1).concat([['group', 'กลุ่มที่แจ้ง']], COLS.slice(1)) : COLS.slice();
+      if (state.tab === 'repeat') {
+        var i = c.map(function (x) { return x[0]; }).indexOf('area') + 1;
+        c = c.slice(0, i).concat(REPEAT_COLS, c.slice(i));
+      }
+      return c;
     }
-    function shown() { return (state.rows || []).filter(function (r) { return !state.grp || r.group === state.grp; }); }
+    function inGrp(r) { return !state.grp || r.group === state.grp; }
+    function shown() { return (state.rows || []).filter(function (r) { return inGrp(r) && (state.tab !== 'repeat' || r.repeatSeq); }); }
 
     function todayKey() { return new Date(Date.now() + TZ).toISOString().slice(0, 10); }
     function addDays(k, n) { var p = k.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2] + n)).toISOString().slice(0, 10); }
@@ -163,7 +174,13 @@
       if (k === 'date') return thaiShort(r.date);
       if (k === 'outAt' || k === 'onAt') return dotTime(r[k]);
       // งานรวม (ไฟดับวงกว้าง) หลายแจ้งเป็นแถวเดียว
-      if (k === 'area' && r.reports > 1) return (r.area || '') + ' (รวม ' + r.reports + ' แจ้ง)';
+      if (k === 'area') {
+        var a = r.area || '';
+        if (r.reports > 1) a += ' (รวม ' + r.reports + ' แจ้ง)';
+        if (r.repeatSeq && state.tab !== 'repeat') a += ' (ดับซ้ำ)';
+        return a;
+      }
+      if (k === 'repeat') return r.repeatSeq ? '#' + r.repeatSeq + (r.repeatAt ? ' · ' + thaiShort(r.repeatAt.slice(0, 10)) + ' ' + dotTime(r.repeatAt.slice(11)) : '') : '';
       return r[k] || '';
     }
     function ls(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
@@ -247,8 +264,13 @@
         html += '<div class="bar"><h2>&nbsp;</h2></div><div class="card" aria-busy="true"><div class="skel"></div><div class="skel" style="width:80%"></div><div class="skel" style="width:60%"></div></div>';
       } else {
         var rows = shown(), sel = selected(), n = 0, none = !sel.length, COLS_ = cols(), grps = groupsOf(state.rows);
+        var nRep = (state.rows || []).filter(function (r) { return inGrp(r) && r.repeatSeq; }).length;
+        html += '<div class="tabs no-print" role="tablist" aria-label="ประเภทรายงาน">' +
+          [['all', 'ทั้งหมด'], ['repeat', 'ดับซ้ำ (' + nRep + ')']].map(function (t) {
+            return '<button class="tab" role="tab" data-tab="' + t[0] + '" aria-selected="' + (state.tab === t[0]) + '">' + t[1] + '</button>';
+          }).join('') + '</div>';
         var dis = none ? ' disabled' : '';
-        html += '<div class="print-head"><h1>รายงานผลการปฏิบัติงาน กฟส.บางปลาม้า</h1><p>' + rangeLabel(state.from, state.to) + ' · ' + sel.length + ' รายการ</p></div>' +
+        html += '<div class="print-head"><h1>' + title() + '</h1><p>' + rangeLabel(state.from, state.to) + ' · ' + sel.length + ' รายการ</p></div>' +
           '<div class="bar"><h2>' + (sel.length === rows.length ? rows.length + ' รายการ' : 'เลือก ' + sel.length + ' จาก ' + rows.length + ' รายการ') +
           '<small>' + rangeLabel(state.from, state.to) + '</small></h2>' +
           (grps.length > 1 ? '<div class="chips no-print" role="group" aria-label="กรองตามกลุ่มที่แจ้ง">' +
@@ -259,7 +281,9 @@
             '<button class="btn" id="xlsx"' + dis + '>' + icon('sheet') + 'Excel</button><button class="btn" id="doc"' + dis + '>' + icon('doc') + 'Word</button>' +
             '<button class="btn" id="copy"' + dis + '>' + icon('copy') + 'คัดลอกตาราง</button></div>' : '') + '</div>';
         if (!rows.length) {
-          html += '<div class="card empty">' + icon('inbox', 40) + '<b>ไม่มีผลการปฏิบัติงานในช่วงนี้</b>แสดงเฉพาะงานที่ช่างกด "บันทึกผล" ในหน้าเคสแล้ว ลองเลือกช่วงวันอื่น</div>';
+          html += state.tab === 'repeat'
+            ? '<div class="card empty">' + icon('inbox', 40) + '<b>ไม่มีจุดที่ดับซ้ำในช่วงนี้</b>งานจะเข้ามาเองเมื่อช่างกด "ดับอีกรอบ" ในหน้าเคส และบันทึกผลแล้ว</div>'
+            : '<div class="card empty">' + icon('inbox', 40) + '<b>ไม่มีผลการปฏิบัติงานในช่วงนี้</b>แสดงเฉพาะงานที่ช่างกด "บันทึกผล" ในหน้าเคสแล้ว ลองเลือกช่วงวันอื่น</div>';
         } else {
           var all = sel.length === rows.length;
           html += '<div class="card table-wrap"><table><thead><tr><th class="pick no-print"><label class="tick"><input type="checkbox" id="pick-all"' + (all ? ' checked' : '') +
@@ -284,7 +308,8 @@
 
     // ---------- ส่งออก ----------
 
-    function fileBase() { return 'รายงานผลปฏิบัติงาน_' + (state.from === state.to ? state.from : state.from + '_ถึง_' + state.to); }
+    function title() { return (state.tab === 'repeat' ? 'รายงานจุดที่ไฟดับซ้ำ' : 'รายงานผลการปฏิบัติงาน') + ' กฟส.บางปลาม้า'; }
+    function fileBase() { return (state.tab === 'repeat' ? 'รายงานจุดดับซ้ำ_' : 'รายงานผลปฏิบัติงาน_') + (state.from === state.to ? state.from : state.from + '_ถึง_' + state.to); }
     function download(blob, name) {
       var a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
@@ -344,11 +369,11 @@
       btn.disabled = true;
       loadXlsx().then(function () {
         var ws = XLSX.utils.aoa_to_sheet(matrix());
-        var wid = [6, 10, 9, 9, 16, 28, 14, 20, 24, 20, 20];
-        if (cols().length > COLS.length) wid.splice(2, 0, 14);
+        var W = { date: 10, group: 14, outAt: 9, onAt: 9, device: 16, area: 28, repeat: 18, prevCause: 28, trans: 14, cause: 20, fix: 24, used: 20, by: 20 };
+        var wid = [6].concat(cols().map(function (c) { return W[c[0]] || 16; }));
         ws['!cols'] = wid.map(function (w) { return { wch: w }; });
         var wb = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(wb, ws, 'ผลปฏิบัติงาน');
+        XLSX.utils.book_append_sheet(wb, ws, state.tab === 'repeat' ? 'จุดดับซ้ำ' : 'ผลปฏิบัติงาน');
         XLSX.writeFile(wb, fileBase() + '.xlsx');
       }).catch(function (e) { alertBox(e.message); }).then(function () { btn.disabled = false; });
     }
@@ -359,7 +384,7 @@
         '<head><meta charset="utf-8"><style>@page Section1{size:841.9pt 595.3pt;mso-page-orientation:landscape;margin:36pt 30pt}div.Section1{page:Section1}' +
         'body{font-family:"TH SarabunPSK","Tahoma",sans-serif;font-size:14pt}table{border-collapse:collapse;width:100%}' +
         'td,th{border:1px solid #777;padding:3pt 5pt;vertical-align:top;font-size:13pt}th{background:#eee}</style></head><body><div class="Section1">' +
-        '<h2 style="margin:0">รายงานผลการปฏิบัติงาน กฟส.บางปลาม้า</h2><p>' + rangeLabel(state.from, state.to) + ' · ' + selected().length + ' รายการ</p><table>' +
+        '<h2 style="margin:0">' + title() + '</h2><p>' + rangeLabel(state.from, state.to) + ' · ' + selected().length + ' รายการ</p><table>' +
         m.map(function (r, i) { var tag = i ? 'td' : 'th'; return '<tr>' + r.map(function (v) { return '<' + tag + '>' + escBr(v) + '</' + tag + '>'; }).join('') + '</tr>'; }).join('') +
         '</table></div></body></html>';
       download(new Blob(['﻿', html], { type: 'application/msword' }), fileBase() + '.doc');
@@ -381,6 +406,12 @@
       if (t.dataset.grp !== undefined) {
         state.grp = t.dataset.grp;
         render();
+      } else if (t.dataset.tab) {
+        state.tab = t.dataset.tab;
+        ls('rb_report_tab', state.tab);
+        render();
+        var cur = document.querySelector('[data-tab="' + state.tab + '"]');
+        if (cur) cur.focus();
       } else if (t.dataset.preset) {
         state.preset = t.dataset.preset;
         var r = presetRange(state.preset);
@@ -404,8 +435,8 @@
     document.addEventListener('change', function (e) {
       var t = e.target;
       if (t.id === 'pick-all') {
-        state.off = {};
-        if (!t.checked) shown().forEach(function (r) { state.off[r.caseId] = true; });
+        // แก้เฉพาะแถวที่เห็นอยู่ (แท็บ/กลุ่มนี้) แถวที่ซ่อนอยู่คงตามที่เลือกไว้ (Codex review)
+        shown().forEach(function (r) { if (t.checked) delete state.off[r.caseId]; else state.off[r.caseId] = true; });
       } else if (t.dataset && t.dataset.pick) {
         if (t.checked) delete state.off[t.dataset.pick]; else state.off[t.dataset.pick] = true;
       } else return;
@@ -425,7 +456,9 @@
         A.forEach(function (a, j) {
           if ((i + j) % 2) return;
           list.push({ caseId: d.replace(/-/g, '') + '-00' + (j + 1), date: d, outAt: ('0' + (8 + j * 3)).slice(-2) + ':' + (j ? '15' : '40'),
-            onAt: ('0' + (9 + j * 3)).slice(-2) + ':0' + j, area: a[0], device: a[1], trans: j === 2 ? '12-345678' : '', cause: a[2], fix: a[3], used: a[4], by: 'ช่างตัวอย่าง ผปร', group: j === 1 ? 'กลุ่มรับแจ้ง 2' : 'มดงาน' });
+            onAt: ('0' + (9 + j * 3)).slice(-2) + ':0' + j, area: a[0],
+            repeatSeq: j === 0 && i % 3 === 2 ? 4 : 0, repeatAt: j === 0 && i % 3 === 2 ? addDays(d, -1) + ' 16:20' : '',
+            prevCause: j === 0 && i % 3 === 2 ? 'ช็อตงู / เปลี่ยนฟิวส์ใหม่' : '', device: a[1], trans: j === 2 ? '12-345678' : '', cause: a[2], fix: a[3], used: a[4], by: 'ช่างตัวอย่าง ผปร', group: j === 1 ? 'กลุ่มรับแจ้ง 2' : 'มดงาน' });
         });
         d = addDays(d, 1); i++;
       }
@@ -437,6 +470,7 @@
     state.preset = PRESETS.some(function (p) { return p[0] === saved; }) ? saved : 'today';
     var r0 = presetRange(state.preset);
     state.from = r0[0]; state.to = r0[1];
+    state.tab = ls('rb_report_tab') === 'repeat' ? 'repeat' : 'all';
     load();
   })();
   </script>

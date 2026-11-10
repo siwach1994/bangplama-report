@@ -93,7 +93,7 @@
   var AUDIT_LABELS = {
     tick: 'ติ๊กว่าดำเนินการแล้ว', untick: 'ยกเลิกการติ๊ก',
     hide: 'ซ่อน · ไม่ใช่รายการรับแจ้ง', unhide: 'คืนรายการ',
-    start: 'รับงาน', work: 'บันทึกผลการปฏิบัติงาน', group: 'รวมเป็นงานเดียว', ungroup: 'เอาออกจากงานรวม'
+    start: 'รับงาน', work: 'บันทึกผลการปฏิบัติงาน', group: 'รวมเป็นงานเดียว', samejob: 'เคสซ้ำ · รวมเข้าเคสเดิม', repeat: 'ดับอีกรอบที่จุดเดิม', unrepeat: 'ยกเลิกดับอีกรอบ', ungroup: 'เอาออกจากงานรวม'
   };
 
   // หน้าบันทึกผลการปฏิบัติงาน (ยังไม่มี API จริง เปิดเฉพาะโหมดตัวอย่าง หรือเมื่อ config.js ตั้ง WORKLOG: true)
@@ -732,6 +732,29 @@
         }).join('') + '</ul><div class="btn-row"><button class="btn" data-action="group-dismiss">ไม่ใช่</button>' +
         '<button class="btn primary" data-action="group-join"' + (groupBusy ? ' disabled' : '') + '>' + (groupBusy ? 'กำลังรวม…' : 'รวมที่เลือก') + '</button></div></section>';
     }
+    // ลงซ้ำ: สองคนรับเรื่องเดียวกัน อีกคนทำเสร็จไปแล้ว → ให้รายการนี้เสร็จตามเคสเดิม ไม่ต้องกรอกผลใหม่
+    // ดับอีกรอบที่จุดเดิม: ยังเป็นงานค้าง ฟอร์มผลงานเติมข้อมูลจุดเดิมให้
+    if (c.repeatFrom && !c.groupMain) {
+      var rf = c.repeatFrom;
+      html += '<section class="card group-card repeat-card"><h3>' + icon('alert', 18) + 'ดับอีกรอบที่จุดเดิม</h3>' +
+        (rf.gone ? '<p class="work-hint">เคสเดิม #' + rf.seq + ' ถูกลบแล้ว</p>' : '<ul class="group-list">' + miniRow(rf) + '</ul>') +
+        '<p class="work-hint">' + (rf.work ? 'ฟอร์มผลงานเติมรหัสอุปกรณ์ บริเวณ และหม้อแปลงจากเคส #' + rf.seq + ' ให้แล้ว' : 'เคส #' + rf.seq + ' ไม่มีบันทึกผล จึงไม่มีข้อมูลให้เติม') + '</p>' +
+        (c.done ? '' : '<button class="text-btn" data-action="repeat-undo"' + (groupBusy ? ' disabled' : '') + '>ไม่ใช่ดับอีกรอบ · ยกเลิก</button>') + '</section>';
+    }
+    // ลงซ้ำ: เคสซ้ำ (อีกคนทำเสร็จไปแล้ว → เสร็จตาม) หรือ ดับอีกรอบ (งานใหม่ที่จุดเดิม → เติมฟอร์มให้)
+    var same = c.sameJob || [];
+    if (same.length && !c.done && !members.length && !c.repeatFrom) {
+      html += '<details class="card group-card samejob"' + (groupBusy ? ' open' : '') + '><summary><span>' + icon('link', 18) +
+        'แจ้งซ้ำกับเคสอื่น?</span><small>' + same.length + ' เคสในช่วง 3 ชม.</small></summary>' +
+        '<p class="work-hint"><b>เคสซ้ำ</b> = เรื่องเดียวกัน รายการนี้เสร็จตามเคสนั้น ไม่ต้องบันทึกผล<br><b>ดับอีกรอบ</b> = แก้แล้วแต่ดับอีก ยังต้องไปทำ ฟอร์มเติมข้อมูลจุดเดิมให้</p>' +
+        '<ul class="group-list">' + same.map(function (x) {
+          var st = x.done ? '<span class="sj-st done">✅ เสร็จแล้ว</span>' : (x.workStatus === 'doing' ? '<span class="sj-st doing">🔧 กำลังทำ</span>' : '<span class="sj-st">ยังไม่ทำ</span>');
+          var dis = groupBusy ? ' disabled' : '';
+          return miniRow(x, '<div class="sj-act">' + st + '<span class="sj-btns">' +
+            (x.done ? '<button class="btn small" data-action="repeat" data-id="' + esc(x.caseId) + '"' + dis + ' aria-label="ดับอีกรอบที่จุดเดียวกับเคส #' + x.seq + '">ดับอีกรอบ</button>' : '') +
+            '<button class="btn small" data-action="samejob" data-id="' + esc(x.caseId) + '"' + dis + ' aria-label="เป็นเคสซ้ำกับเคส #' + x.seq + '">เคสซ้ำ</button></span></div>');
+        }).join('') + '</ul></details>';
+    }
     return html;
   }
 
@@ -756,6 +779,34 @@
           }).join('\n')).then(function (ok) {
           if (!DEMO) toast(ok ? 'รวมแล้ว · แจ้งกลุ่มแล้ว' : 'รวมแล้ว แต่ส่งเข้ากลุ่มไม่ได้', !ok);
         });
+      });
+      return;
+    }
+    if (a === 'samejob') {
+      var tid = el.getAttribute('data-id');
+      var t = (c.sameJob || []).filter(function (x) { return x.caseId === tid; })[0];
+      if (!t) return;
+      confirmDialog({
+        title: 'เคสซ้ำกับเคส #' + t.seq + '?',
+        body: t.done ? 'รายการนี้จะเสร็จตามเคส #' + t.seq + ' ทันที ไม่ต้องบันทึกผลซ้ำ' : 'รายการนี้จะรวมเข้าเคส #' + t.seq + ' บันทึกผลที่เคสนั้นครั้งเดียว',
+        ok: 'ใช่ เคสซ้ำ'
+      }).then(function (yes) {
+        if (!yes) return;
+        groupCall('samejob', { caseId: c.caseId, targetId: tid }, function () {
+          toast(t.done ? 'เรียบร้อย · เสร็จตามเคส #' + t.seq : 'รวมเข้าเคส #' + t.seq + ' แล้ว');
+        });
+      });
+      return;
+    }
+    if (a === 'repeat' || a === 'repeat-undo') {
+      var rid = a === 'repeat' ? el.getAttribute('data-id') : '';
+      var rt = rid && (c.sameJob || []).filter(function (x) { return x.caseId === rid; })[0];
+      if (a === 'repeat' && !rt) return;
+      groupCall('repeat', { caseId: c.caseId, targetId: rid }, function () {
+        // ฟอร์มที่ยังไม่ได้พิมพ์ ให้ตั้งค่าใหม่ (เติมข้อมูลจุดเดิม)
+        if (state.work && state.work.caseId === c.caseId && !state.work.dirty) state.work = null;
+        renderCase(null);
+        toast(rt ? 'บันทึกว่าดับอีกรอบที่จุดเคส #' + rt.seq : 'ยกเลิกแล้ว');
       });
       return;
     }
@@ -808,6 +859,9 @@
       date: c.reportDate, outAt: c.time, by: lsGet(WORKER_KEY) || '',
       area: (c.title === 'แจ้งด้วยรูปและพิกัด' ? c.approxAddress || c.address : c.title) || ''
     };
+    // ดับอีกรอบ: เติมรหัสอุปกรณ์/บริเวณ/หม้อแปลงจากเคสเดิม (เฉพาะฟอร์มใหม่ ไม่ทับที่กรอกไว้)
+    var rw = !saved && !c.work && c.repeatFrom && c.repeatFrom.work;
+    if (rw) ['device', 'area', 'trans'].forEach(function (k) { if (rw[k]) base[k] = rw[k]; });
     var v = {};
     WORK_FIELDS.forEach(function (f) { v[f.k] = String(base[f.k] == null ? '' : base[f.k]).slice(0, 300); });
     var keepOpen = w && w.caseId === c.caseId && w.open;
@@ -864,9 +918,14 @@
     var place = String(c.approxAddress || c.address || '').slice(0, 80);
     var body = [fxText(title, { size: 'md', weight: 'bold', color: '#17181C', maxLines: 3 })];
     if (place && title.indexOf(place) < 0) body.push(fxText(place, { maxLines: 2 }));
+    // เบอร์เต็ม กดโทรได้ (ผู้ใช้สั่ง 10 พ.ย. 2569)
+    (c.phones || []).slice(0, 3).forEach(function (p) {
+      body.push(fxText('📞 ' + fmtPhone(p), { weight: 'bold', color: '#0B57A4', decoration: 'underline', action: { type: 'uri', label: 'โทร', uri: 'tel:' + p } }));
+    });
     var meta = [fxRow('แจ้ง', shortDate(c.reportDate) + ' ' + (c.time || '') + ' น.' + (c.reporterName ? ' · ' + c.reporterName : ''))];
     if (c.group) meta.push(fxRow('กลุ่ม', c.group));
     if (c.groupSize > 1) meta.push(fxRow('รวมงาน', c.groupSize + ' แจ้ง'));
+    if (c.repeatFrom) meta.push(fxRow('ดับซ้ำ', 'จุดเดิมเคส #' + c.repeatFrom.seq + ' (' + c.repeatFrom.time + ' น.)', true));
     meta.push(fxRow('รับงาน', (info.by || '-') + (info.startAt ? ' · ' + info.startAt + ' น.' : '')));
     if (done) meta.push(fxRow('เสร็จ', (info.doneBy || info.by || '-') + (info.doneAt ? ' · ' + info.doneAt + ' น.' : '')));
     body.push({ type: 'box', layout: 'vertical', margin: 'md', spacing: 'xs', contents: meta });
@@ -1052,7 +1111,7 @@
     if (n.type === 'separator') return '<hr class="fx-sep">';
     if (n.type === 'button') return '<span class="fx-btn">' + esc(n.action.label) + '</span>';
     var st = 'flex:' + (n.flex === 0 ? '0 0 auto' : (n.flex == null ? 1 : n.flex) + ' 1 0') + ';color:' + (n.color || '#17181C') + ';' + (n.weight === 'bold' ? 'font-weight:700;' : '') +
-      (n.align === 'end' ? 'text-align:right;' : '') + 'font-size:' + ({ xs: '13px', sm: '14px', md: '16px' }[n.size] || '15px');
+      (n.align === 'end' ? 'text-align:right;' : '') + (n.decoration === 'underline' ? 'text-decoration:underline;' : '') + 'font-size:' + ({ xs: '13px', sm: '14px', md: '16px' }[n.size] || '15px');
     return '<span class="fx-text" style="' + st + '">' + esc(n.text) + '</span>';
   }
 
@@ -1556,7 +1615,7 @@
       case 'back': history.back(); break;
       case 'work-start': case 'work-open': case 'work-cancel': case 'work-save': case 'work-reopen': workAction(a); break;
       case 'wf-pick': pickChip(el); break;
-      case 'group-join': case 'group-dismiss': case 'group-remove': groupAction(a, el); break;
+      case 'group-join': case 'group-dismiss': case 'group-remove': case 'samejob': case 'repeat': case 'repeat-undo': groupAction(a, el); break;
     }
   });
 
@@ -1797,6 +1856,16 @@
         return base.some(function (b) { return Math.abs(ts(x) - ts(b)) <= 3600000 && near(b, x); });
       });
     }
+    function sameJob(c, g) {
+      if (c.hidden || c.done || g.of[c.caseId] || g.size[c.caseId]) return [];
+      var cand = candidates(c, g);
+      return cases.filter(function (x) {
+        return x !== c && !x.hidden && !g.of[x.caseId] && cand.indexOf(x) < 0 && Math.abs(ts(x) - ts(c)) <= 3 * 3600000;
+      }).sort(function (a, b) {
+        if (!!a.done !== !!b.done) return a.done ? -1 : 1;
+        return Math.abs(ts(a) - ts(c)) - Math.abs(ts(b) - ts(c));
+      }).slice(0, 15).map(function (x) { return Object.assign(mini(x), { done: !!x.done, workStatus: x.workStatus || '', doneBy: x.doneBy || '' }); });
+    }
     function sync(main) {
       var g = ginfo();
       members(main.caseId, g).forEach(function (m) { m.done = main.done; m.doneBy = main.doneBy; m.doneAt = main.doneAt; m.workStatus = main.workStatus; });
@@ -1807,7 +1876,11 @@
         parts: c.parts, audit: audit[c.caseId].slice(), suggest: demoSuggest(),
         groupMain: mainId ? mini(g.by[mainId]) : null,
         groupMembers: mainId ? [] : members(c.caseId, g).map(mini),
-        groupCandidates: mainId ? [] : candidates(c, g).map(mini)
+        groupCandidates: mainId ? [] : candidates(c, g).map(mini),
+        sameJob: c.repeatOf ? [] : sameJob(c, g),
+        repeatFrom: c.repeatOf && find(c.repeatOf) ? (function (t) {
+          return Object.assign(mini(t), { work: t.work ? { device: t.work.device || '', area: t.work.area || '', trans: t.work.trans || '' } : null });
+        })(find(c.repeatOf)) : null
       });
     }
     function top(list) { var g = ginfo(); return list.filter(function (c) { return !g.of[c.caseId]; }); }
@@ -1914,11 +1987,30 @@
         audit[main.caseId].push({ action: 'group', name: 'ผู้ทดสอบ', time: nowHHMM(), date: todayKey() });
         return caseFull(main);
       },
+      repeat: function (p) {
+        var c = find(p.caseId);
+        if (p.targetId) {
+          var t = find(p.targetId);
+          if (!t || !t.done || c.done) throw new ApiError('เลือกได้เฉพาะเคสที่เสร็จแล้ว', 400);
+          c.repeatOf = t.caseId;
+        } else c.repeatOf = '';
+        audit[c.caseId].push({ action: p.targetId ? 'repeat' : 'unrepeat', name: 'ผู้ทดสอบ', time: nowHHMM(), date: todayKey() });
+        return caseFull(c);
+      },
+      samejob: function (p) {
+        var c = find(p.caseId), t = find(p.targetId), g = ginfo();
+        if (!c || !t || c.done || g.of[c.caseId] || g.size[c.caseId] || g.of[t.caseId]) throw new ApiError('รวมไม่ได้ ลองโหลดใหม่', 400);
+        t.groupId = t.caseId; c.groupId = t.caseId;
+        c.done = t.done; c.doneBy = t.doneBy; c.doneAt = t.doneAt; c.workStatus = t.workStatus;
+        audit[c.caseId].push({ action: 'group', name: 'ผู้ทดสอบ', time: nowHHMM(), date: todayKey() });
+        audit[t.caseId].push({ action: 'group', name: 'ผู้ทดสอบ', time: nowHHMM(), date: todayKey() });
+        return caseFull(c);
+      },
       ungroup: function (p) {
         var c = find(p.caseId), g = ginfo(), mainId = g.of[p.caseId];
         if (!mainId) throw new ApiError('รายการนี้ไม่ได้อยู่ในงานรวม', 400);
         c.groupId = '';
-        if (!c.work) { c.done = false; c.doneBy = ''; c.doneAt = ''; c.workStatus = ''; }
+        c.done = false; c.doneBy = ''; c.doneAt = ''; c.workStatus = '';
         if (g.size[mainId] === 1) find(mainId).groupId = '';
         audit[c.caseId].push({ action: 'ungroup', name: 'ผู้ทดสอบ', time: nowHHMM(), date: todayKey() });
         return caseFull(find(mainId));
