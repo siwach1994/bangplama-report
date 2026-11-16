@@ -135,8 +135,14 @@
         if (j.me) state.me = j.me; // เซิร์ฟเวอร์แนบชื่อผู้ใช้มาทุกคำตอบ
         if (j.ok) return j.data;
         if (j.code === 401) {
+          // ในแอป LINE เรียก liff.login ไม่ได้ ให้โหลดหน้าใหม่เพื่อรับ token ใหม่จาก LINE แทน
+          if (liff.isInClient()) {
+            fatal('การเข้าสู่ระบบหมดอายุ กดลองใหม่ หรือปิดหน้านี้แล้วเปิดจากกลุ่ม LINE อีกครั้ง', true);
+            return new Promise(function () {});
+          }
           liff.logout();
           liff.login({ redirectUri: location.href });
+          return new Promise(function () {}); // กำลัง redirect
         }
         if (j.code === 403) {
           forgetDay();
@@ -1816,10 +1822,13 @@
   }
 
   function boot() {
-    // LINE บางเครื่องเข้าสู่ระบบไม่ตอบเลย รอ 20 วินาทีแล้วขึ้นปุ่มลองใหม่แทนการค้าง
-    var ready = DEMO ? Promise.resolve() : Promise.race([liff.init({ liffId: CFG.LIFF_ID }), new Promise(function (res, rej) {
-      setTimeout(function () { rej(new Error('LINE เข้าสู่ระบบช้าเกินไป ตรวจสอบอินเทอร์เน็ต หรืออัปเดตแอป LINE แล้วกดลองใหม่')); }, 20000);
-    })]).then(function () {
+    // LINE บางเครื่องเข้าสู่ระบบช้ามาก: เกิน 25 วินาทีขึ้นปุ่มลองใหม่ แต่ยังรอต่อ ถ้าเข้าได้ทีหลังก็เปิดหน้าให้เอง
+    var initDone = false;
+    if (!DEMO) setTimeout(function () {
+      if (!initDone) fatal('LINE เข้าสู่ระบบช้ากว่าปกติ กำลังรอต่อ… ถ้ายังไม่ขึ้นให้กดลองใหม่', true);
+    }, 25000);
+    var ready = DEMO ? Promise.resolve() : liff.init({ liffId: CFG.LIFF_ID }).then(function () {
+      initDone = true;
       if (!liff.isLoggedIn()) {
         liff.login({ redirectUri: location.href });
         return new Promise(function () {}); // กำลัง redirect
@@ -1842,6 +1851,7 @@
       if (!location.hash) history.replaceState(null, '', cm ? '#/case/' + cm[1] : '#/day/' + state.date);
       route();
     }, function (e) {
+      initDone = true;
       fatal((e && e.message) || 'ลองเปิดใหม่จากลิงก์ในกลุ่ม LINE', true);
     });
   }
