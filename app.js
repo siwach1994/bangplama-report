@@ -24,7 +24,13 @@
   function shortDate(key) { var p = parts(key); return p[2] + ' ' + MON[p[1] - 1]; }
   function thaiMonth(key) { var p = parts(key); return MON_LONG[p[1] - 1] + ' ' + (p[0] + 543); }
   function nowHHMM() { return new Date(Date.now() + TZ).toISOString().slice(11, 16); }
-  function isDateKey(s) { return /^\d{4}-\d{2}-\d{2}$/.test(s || ''); }
+  // วันที่จริงเท่านั้น (9999-99-99 หรือ 2026-02-31 ไม่ผ่าน)
+  function isDateKey(s) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s || '')) return false;
+    var p = s.split('-').map(Number);
+    var d = new Date(Date.UTC(p[0], p[1] - 1, p[2]));
+    return p[0] >= 2000 && d.getUTCMonth() === p[1] - 1 && d.getUTCDate() === p[2];
+  }
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -196,7 +202,10 @@
   function parseHash() {
     var h = location.hash.replace(/^#\/?/, '');
     var i = h.indexOf('/');
-    return i < 0 ? { name: h || 'day', arg: '' } : { name: h.slice(0, i), arg: decodeURIComponent(h.slice(i + 1)) };
+    if (i < 0) return { name: h || 'day', arg: '' };
+    var arg = h.slice(i + 1);
+    try { arg = decodeURIComponent(arg); } catch (e) { arg = ''; } // ลิงก์เสีย (% ไม่ครบ) ไม่ให้หน้าพัง
+    return { name: h.slice(0, i), arg: arg };
   }
 
   function route() {
@@ -205,7 +214,8 @@
     if (r.name === 'case' && r.arg) return showCase(r.arg);
     if (r.name === 'history') return showHistory();
     if (r.name === 'pending') return showPending(isDateKey(r.arg) ? r.arg : addDays(todayKey(), 1));
-    return showDay(isDateKey(r.arg) ? r.arg : state.date);
+    // วันที่ในลิงก์ผิดหรืออยู่ในอนาคต → วันนี้
+    return showDay(isDateKey(r.arg) && r.arg <= todayKey() ? r.arg : (r.arg ? todayKey() : state.date));
   }
 
   /** โหลดข้อมูลหน้าปัจจุบันใหม่โดยไม่ล้างหน้าจอ (ปุ่มรีเฟรช / กลับมาเปิดแอปอีกครั้ง) */
@@ -353,6 +363,13 @@
       '</nav>';
   }
 
+  var HINT_KEY = 'rb_hint_v1';
+  var hintClosed = false;
+  function showHint() {
+    if (hintClosed || !WORKLOG) return false;
+    try { return !localStorage.getItem(HINT_KEY); } catch (e) { return false; }
+  }
+
   function dayViewHtml() {
     if (state.dayError) return errorHtml(state.dayError, 'reload-day');
     if (!state.day) return skeletonCards(3);
@@ -360,6 +377,14 @@
 
     var html = groupChipsHtml();
     var n = counts();
+    // เปิดครั้งแรก: บอกวิธีใช้สั้นๆ 3 ข้อ (ปิดแล้วไม่ขึ้นอีก)
+    if (showHint()) {
+      html += '<section class="card hint-card" aria-labelledby="hint-t"><h3 id="hint-t">ใช้งานอย่างไร</h3><ol>' +
+        '<li>แตะรายการเพื่อดูรายละเอียด โทร หรือนำทาง</li>' +
+        '<li>กด “รับงาน” เมื่อออกไปแก้ ระบบแจ้งกลุ่มให้</li>' +
+        '<li>แก้เสร็จกด “กรอกผล” แล้วบันทึก</li></ol>' +
+        '<button class="btn" data-action="hint-close">เข้าใจแล้ว</button></section>';
+    }
     html += '<div class="chips" role="group" aria-label="กรองรายการ">' +
       filterChip('all', 'ทั้งหมด', n.total) + filterChip('todo', 'ยังไม่ติ๊ก', n.todo) + filterChip('done', 'ติ๊กแล้ว', n.done) +
       '</div>';
@@ -611,18 +636,22 @@
       renderCase(null);
     }, function (e) {
       if (seq !== loadSeq) return;
-      renderCase(e.message);
+      renderCase(e.message, e.code === 404);
     });
   }
 
-  function renderCase(error) {
+  function renderCase(error, notFound) {
     var c = state.caseData;
     var back = '#/day/' + (c ? c.reportDate : state.date);
     var html = demoFlag() + '<header class="topbar solo"><a class="icon-btn" href="' + back + '" aria-label="กลับไปหน้ารายการ">' + icon('chevL', 22) + '</a>' +
       '<div class="topbar-text"><div class="topbar-sub">' + (c ? 'รายการ #' + c.seq + ' · ' + shortDate(c.reportDate) + ' ' + esc(c.time) : '&nbsp;') + '</div>' +
       '<h1>รายละเอียดรายการ</h1></div></header><main class="content">';
     if (error) {
-      app.innerHTML = html + errorHtml(error, 'back') + '</main>';
+      // เปิดจากการ์ดใน LINE ไม่มีหน้าก่อนหน้า จึงใช้ลิงก์กลับหน้ารายการ (เดิมปุ่ม "ลองใหม่" กลับไปย้อนหน้าซึ่งไม่ทำอะไร)
+      app.innerHTML = html + '<div class="empty">' + icon('alert', 40) + '<b>' + (notFound ? 'ไม่พบรายการนี้' : 'โหลดข้อมูลไม่สำเร็จ') + '</b>' +
+        '<span>' + (notFound ? 'อาจถูกลบไปแล้ว หรือลิงก์ไม่ถูกต้อง' : esc(error)) + '</span><div class="btn-row" style="margin-top:14px">' +
+        (notFound ? '' : '<button class="btn" data-action="reload-case">ลองใหม่</button>') +
+        '<a class="btn primary" href="' + back + '">กลับไปหน้ารายการ</a></div></div></main>';
       return;
     }
     if (!c) {
@@ -1708,11 +1737,17 @@
     overlay.innerHTML = '<div class="lightbox" role="dialog" aria-modal="true" aria-label="รูปเต็มจอ" data-action="close">' +
       '<span class="loading">กำลังโหลดรูป…</span>' +
       '<button class="icon-btn" data-action="close" aria-label="ปิด">' + icon('x', 22) + '</button></div>';
+    // ผูกผลกับหน้าต่างรูปที่เปิดรอบนี้: ปิดแล้วเปิดรูปอื่นระหว่างโหลด ผลเก่าต้องไม่ทับรูปใหม่ (Codex review)
+    var box = overlay.querySelector('.lightbox');
     loadPhoto(id, 'full').then(function (src) {
-      var box = overlay.querySelector('.lightbox');
-      if (!box) return;
-      box.querySelector('.loading').outerHTML = '<img src="' + src + '" alt="รูปจากผู้แจ้ง">';
-    }, function (e) { closeOverlay(); toast(e.message, true); });
+      var loading = overlay.contains(box) && box.querySelector('.loading');
+      if (!loading) return;
+      loading.outerHTML = '<img src="' + src + '" alt="รูปจากผู้แจ้ง">';
+    }, function (e) {
+      if (!overlay.contains(box)) return;
+      closeOverlay();
+      toast(e.message, true);
+    });
   }
 
   // ---------- overlay / ส่วนช่วย ----------
@@ -1726,7 +1761,8 @@
         '<div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="dlg-t"><h2 id="dlg-t">' + esc(o.title) + '</h2><p>' + esc(o.body) + '</p>' +
         '<div class="btn-row"><button class="btn" data-action="confirm-no">ไม่ใช่ตอนนี้</button>' +
         '<button class="btn ' + (o.danger ? 'danger' : 'primary') + '" data-action="confirm-yes">' + esc(o.ok) + '</button></div></div>';
-      overlay.querySelector('[data-action="confirm-yes"]').focus();
+      // คำถามที่ลบ/ยกเลิก (danger): โฟกัสปุ่ม "ไม่ใช่ตอนนี้" กด Enter รัวๆ จะไม่ลบโดยไม่ตั้งใจ
+      overlay.querySelector(o.danger ? '[data-action="confirm-no"]' : '[data-action="confirm-yes"]').focus();
     });
   }
 
@@ -1808,6 +1844,8 @@
       case 'reload-history': showHistory(); break;
       case 'refresh': reloadCurrent(); break;
       case 'reload-page': location.reload(); break;
+      case 'hint-close': try { localStorage.setItem(HINT_KEY, '1'); } catch (err) {} hintClosed = true; renderDay(); break;
+      case 'reload-case': if (parseHash().name === 'case') showCase(parseHash().arg); break;
       case 'today': go('#/day/' + todayKey()); break;
       case 'goto-map': state.view = 'map'; go('#/day/' + state.date); break;
       case 'back': history.back(); break;
@@ -1834,9 +1872,36 @@
     if (e.target.hasAttribute && e.target.hasAttribute('data-wp')) wpPick(e.target);
   });
 
+  // คีย์บอร์ด: Esc ปิด · Tab วนอยู่ในหน้าต่างที่เปิดอยู่ ไม่หลุดไปข้างหลัง
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && overlay.innerHTML) closeOverlay();
+    if (e.key === 'Tab' && overlay.innerHTML) {
+      var f = overlayFocusables();
+      if (!f.length) return;
+      var i = f.indexOf(document.activeElement);
+      if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && (i === -1 || i === f.length - 1)) { e.preventDefault(); f[0].focus(); }
+    }
   });
+
+  function overlayFocusables() {
+    return Array.prototype.filter.call(overlay.querySelectorAll('button, a[href], input, textarea, select, [tabindex]:not([tabindex="-1"])'),
+      function (el) { return !el.disabled && el.getClientRects().length; });
+  }
+
+  // เปิดหน้าต่าง → ย้ายโฟกัสเข้าไป · ปิด → กลับไปที่ปุ่มเดิม (คนใช้คีย์บอร์ดไม่หลงที่)
+  var lastOutsideFocus = null;
+  document.addEventListener('focusin', function (e) { if (!overlay.contains(e.target)) lastOutsideFocus = e.target; });
+  new MutationObserver(function () {
+    if (overlay.innerHTML) {
+      if (!overlay.contains(document.activeElement)) {
+        var f = overlayFocusables();
+        if (f.length) f[0].focus({ preventScroll: true });
+      }
+    } else if (lastOutsideFocus && document.contains(lastOutsideFocus) && document.activeElement === document.body) {
+      lastOutsideFocus.focus({ preventScroll: true });
+    }
+  }).observe(overlay, { childList: true });
 
   window.addEventListener('hashchange', route);
 
@@ -1844,7 +1909,7 @@
 
   function initialDate() {
     var m = location.search.match(/[?&]date=(\d{4}-\d{2}-\d{2})/);
-    return m && m[1] <= todayKey() ? m[1] : todayKey();
+    return m && isDateKey(m[1]) && m[1] <= todayKey() ? m[1] : todayKey(); // วันที่ไม่มีจริง (02-31) → วันนี้
   }
 
   // ---------- เก็บรายการล่าสุดไว้ในเครื่อง (เปิดครั้งหน้าเห็นทันที) ----------
