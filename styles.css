@@ -525,6 +525,7 @@ a { color: inherit; }
 }
 
 .fatal { max-width: 420px; margin: 18vh auto 0; padding: 0 20px; text-align: center; color: var(--ink-2); }
+.fatal-retry { margin: 20px auto 0; min-height: 44px; min-width: 160px; }
 .fatal b { display: block; font-size: 18px; color: var(--ink); margin: 10px 0 4px; }
 
 /* =========================================================

@@ -122,11 +122,16 @@
   var LiveApi = {
     call: function (action, payload) {
       var body = Object.assign({ action: action, idToken: liff.getIDToken() }, payload || {});
+      // ตั้งเวลารอ เน็ตหลุดกลางทางจะไม่หมุนค้างตลอด (ส่งรูปให้นานกว่า)
+      var ctl = window.AbortController ? new AbortController() : null;
+      var tm = ctl && setTimeout(function () { ctl.abort(); }, action === 'wphoto' ? 90000 : 30000);
       return fetch(CFG.API_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        signal: ctl ? ctl.signal : undefined
       }).then(function (r) { return r.json(); }).then(function (j) {
+        clearTimeout(tm);
         if (j.me) state.me = j.me; // เซิร์ฟเวอร์แนบชื่อผู้ใช้มาทุกคำตอบ
         if (j.ok) return j.data;
         if (j.code === 401) {
@@ -140,6 +145,7 @@
         }
         throw new ApiError(j.error || 'เกิดข้อผิดพลาด', j.code);
       }, function () {
+        clearTimeout(tm);
         throw new ApiError('เชื่อมต่อไม่ได้ ตรวจสอบอินเทอร์เน็ตแล้วลองใหม่', 0);
       });
     }
@@ -1741,6 +1747,7 @@
       case 'reload-day': showDay(state.date); break;
       case 'reload-history': showHistory(); break;
       case 'refresh': reloadCurrent(); break;
+      case 'reload-page': location.reload(); break;
       case 'today': go('#/day/' + todayKey()); break;
       case 'goto-map': state.view = 'map'; go('#/day/' + state.date); break;
       case 'back': history.back(); break;
@@ -1803,12 +1810,16 @@
     if (b) b.classList.toggle('spinning', on);
   }
 
-  function fatal(msg) {
-    app.innerHTML = '<div class="fatal">' + icon('alert', 40) + '<b>เปิดหน้ารายการไม่ได้</b><span>' + esc(msg) + '</span></div>';
+  function fatal(msg, retry) {
+    app.innerHTML = '<div class="fatal">' + icon('alert', 40) + '<b>เปิดหน้ารายการไม่ได้</b><span>' + esc(msg) + '</span>' +
+      (retry ? '<button class="btn primary fatal-retry" data-action="reload-page">ลองใหม่</button>' : '') + '</div>';
   }
 
   function boot() {
-    var ready = DEMO ? Promise.resolve() : liff.init({ liffId: CFG.LIFF_ID }).then(function () {
+    // LINE บางเครื่องเข้าสู่ระบบไม่ตอบเลย รอ 20 วินาทีแล้วขึ้นปุ่มลองใหม่แทนการค้าง
+    var ready = DEMO ? Promise.resolve() : Promise.race([liff.init({ liffId: CFG.LIFF_ID }), new Promise(function (res, rej) {
+      setTimeout(function () { rej(new Error('LINE เข้าสู่ระบบช้าเกินไป ตรวจสอบอินเทอร์เน็ต หรืออัปเดตแอป LINE แล้วกดลองใหม่')); }, 20000);
+    })]).then(function () {
       if (!liff.isLoggedIn()) {
         liff.login({ redirectUri: location.href });
         return new Promise(function () {}); // กำลัง redirect
@@ -1831,7 +1842,7 @@
       if (!location.hash) history.replaceState(null, '', cm ? '#/case/' + cm[1] : '#/day/' + state.date);
       route();
     }, function (e) {
-      fatal((e && e.message) || 'ลองเปิดใหม่จากลิงก์ในกลุ่ม LINE');
+      fatal((e && e.message) || 'ลองเปิดใหม่จากลิงก์ในกลุ่ม LINE', true);
     });
   }
 
