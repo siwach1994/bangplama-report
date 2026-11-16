@@ -1548,20 +1548,26 @@
     if (state.caseData && state.caseData.caseId === caseId) state.caseData.workPhotos = list;
   }
 
+  // ย่อรูปในมือถือ: รูปเต็ม (ด้านยาว max px) + รูปย่อ 320 px ไว้แสดงในหน้ารายการ (เซิร์ฟเวอร์ไม่ต้องย่อเอง)
   function wpResize(file, max) {
     return new Promise(function (resolve, reject) {
       var url = URL.createObjectURL(file);
       var img = new Image();
-      img.onload = function () {
-        var s = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+      function draw(px) {
+        var s = Math.min(1, px / Math.max(img.naturalWidth, img.naturalHeight));
         var cv = document.createElement('canvas');
         cv.width = Math.max(1, Math.round(img.naturalWidth * s));
         cv.height = Math.max(1, Math.round(img.naturalHeight * s));
         cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-        URL.revokeObjectURL(url);
+        return cv;
+      }
+      img.onload = function () {
+        var cv = draw(max);
         var out = cv.toDataURL('image/jpeg', 0.75);
         if (out.length > 1300000) out = cv.toDataURL('image/jpeg', 0.55);
-        resolve(out);
+        var thumb = draw(320).toDataURL('image/jpeg', 0.7);
+        URL.revokeObjectURL(url);
+        resolve({ src: out, thumb: thumb.length < 190000 ? thumb : '' });
       };
       img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('เปิดไฟล์นี้ไม่ได้ เลือกเป็นรูปภาพ')); };
       img.src = url;
@@ -1577,8 +1583,8 @@
     var room = WP_MAX - (c.workPhotos || []).length - wpUp.filter(function (x) { return x.caseId === c.caseId; }).length;
     if (files.length > room) toast('ใส่ได้อีก ' + Math.max(room, 0) + ' รูป (รวมไม่เกิน ' + WP_MAX + ')', true);
     files.slice(0, Math.max(room, 0)).forEach(function (f) {
-      wpResize(f, 1280).then(function (src) {
-        var x = { key: 'wp' + (++wpSeq), caseId: c.caseId, kind: kind, src: src, fail: false };
+      wpResize(f, 1280).then(function (r) {
+        var x = { key: 'wp' + (++wpSeq), caseId: c.caseId, kind: kind, src: r.src, thumb: r.thumb, fail: false };
         wpUp.push(x);
         wpRender();
         wpSend(x);
@@ -1588,8 +1594,18 @@
 
   function wpSend(x) {
     wpChain = wpChain.then(function () {
-      return Api.call('wphoto', { caseId: x.caseId, kind: x.kind, data: x.src }).then(function (r) {
+      var before = {};
+      var cur = state.caseData && state.caseData.caseId === x.caseId ? state.caseData.workPhotos || [] : [];
+      cur.forEach(function (p) { before[p.id] = true; });
+      return Api.call('wphoto', { caseId: x.caseId, kind: x.kind, data: x.src, thumb: x.thumb || '' }).then(function (r) {
         wpUp = wpUp.filter(function (y) { return y !== x; });
+        // รูปที่เพิ่งส่ง มีในเครื่องอยู่แล้ว ไม่ต้องโหลดกลับจากเซิร์ฟเวอร์
+        // (รูปใหม่ต่อท้ายรายการ ไล่จากท้าย เอาตัวแรกที่ไม่เคยเห็น ชนิดเดียวกัน)
+        var mine = (r.workPhotos || []).slice().reverse().filter(function (p) { return !before[p.id] && p.kind === x.kind; })[0];
+        if (mine) {
+          photoCache[mine.id + '|full'] = x.src;
+          if (x.thumb) photoCache[mine.id + '|thumb'] = x.thumb;
+        }
         wpApply(r.caseId, r.workPhotos);
         wpRender();
       }, function (e) {
@@ -1636,6 +1652,44 @@
     return photoPending[key];
   }
 
+  // รูปย่อหลายรูปรวมเป็นคำขอเดียว ('photos') แทนรูปละคำขอ (เดิมเปิดหน้าหนึ่งยิงหลายสิบคำขอพร้อมกัน ช้าและโดน Google ปัด)
+  var thumbQueue = {};
+  var thumbTimer = null;
+  function loadThumb(id) {
+    var key = id + '|thumb';
+    if (photoCache[key]) return Promise.resolve(photoCache[key]);
+    if (photoPending[key]) return photoPending[key];
+    var d = {};
+    photoPending[key] = new Promise(function (res, rej) { d.res = res; d.rej = rej; });
+    thumbQueue[id] = d;
+    if (!thumbTimer) thumbTimer = setTimeout(flushThumbs, 0);
+    return photoPending[key];
+  }
+  function flushThumbs() {
+    thumbTimer = null;
+    var q = thumbQueue;
+    var ids = Object.keys(q);
+    thumbQueue = {};
+    // ไม่ได้มากับคำขอรวม (เซิร์ฟเวอร์รุ่นเก่า อ่านไม่ทัน หรือใหญ่เกิน) → โหลดทีละรูปแบบเดิม
+    function single(id) {
+      delete photoPending[id + '|thumb'];
+      loadPhoto(id, 'thumb').then(q[id].res, q[id].rej);
+    }
+    for (var i = 0; i < ids.length; i += 12) (function (chunk) {
+      Api.call('photos', { ids: chunk }).then(function (r) {
+        var got = (r && r.photos) || {};
+        chunk.forEach(function (id) {
+          var p = got[id];
+          if (!p || !p.data) return single(id);
+          var key = id + '|thumb';
+          photoCache[key] = 'data:' + p.mime + ';base64,' + p.data;
+          delete photoPending[key];
+          q[id].res(photoCache[key]);
+        });
+      }, function () { chunk.forEach(single); });
+    })(ids.slice(i, i + 12));
+  }
+
   function hydratePhotos(root) {
     Array.prototype.forEach.call(root.querySelectorAll('img[data-photo]'), function (img) {
       var id = img.getAttribute('data-photo');
@@ -1643,7 +1697,7 @@
       var cached = photoCache[id + '|' + size] || (size === 'thumb' ? photoCache[id + '|full'] : null);
       if (cached) { img.src = cached; return; }
       img.classList.add('skel');
-      loadPhoto(id, size).then(function (src) {
+      (size === 'thumb' ? loadThumb(id) : loadPhoto(id, size)).then(function (src) {
         img.classList.remove('skel');
         img.src = src;
       }, function () { img.classList.remove('skel'); img.alt = 'โหลดรูปไม่สำเร็จ'; });
@@ -2065,6 +2119,10 @@
       return s;
     }
     var demoUp = {}, demoUpSeq = 0;
+    function demoPhotoData(id) {
+      if (demoUp[id]) return demoUp[id];
+      return { mime: 'image/svg+xml', data: btoa(unescape(encodeURIComponent(demoPhoto(id)))) };
+    }
     function find(id) { return cases.filter(function (c) { return c.caseId === id; })[0]; }
     function carry(before) {
       return top(cases).filter(function (c) { return !c.hidden && !c.done && c.reportDate < before; });
@@ -2107,9 +2165,11 @@
           }).slice().reverse().slice(0, 50).map(dto)
         };
       },
-      photo: function (p) {
-        if (demoUp[p.fileId]) return demoUp[p.fileId];
-        return { mime: 'image/svg+xml', data: btoa(unescape(encodeURIComponent(demoPhoto(p.fileId)))) };
+      photo: function (p) { return demoPhotoData(p.fileId); },
+      photos: function (p) {
+        var out = {};
+        (p.ids || []).slice(0, 12).forEach(function (id) { out[id] = demoPhotoData(id); });
+        return { photos: out };
       },
       tick: function (p) {
         var c = find(p.caseId);
